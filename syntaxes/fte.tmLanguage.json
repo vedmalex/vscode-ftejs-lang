@@ -49,20 +49,20 @@
 					"begin": "[!#]{",
 					"beginCaptures": {
 						"0": {
-							"name": "keyword.operator.relational.js"
+							"name": "punctuation.definition.template-expression.begin.js"
 						}
 					},
 					"end": "}",
 					"endCaptures": {
 						"0": {
-							"name": "keyword.operator.relational.js"
+							"name": "punctuation.definition.template-expression.end.js"
 						}
 					},
-					"name": "meta.embedded.line.ftejs",
-					"contentName": "source.js.fte",
+					"name": "meta.template.expression.js",
+					"contentName": "meta.embedded.line.js",
 					"patterns": [
 						{
-							"include": "#statements"
+							"include": "#template-substitution-element"
 						}
 					]
 				}
