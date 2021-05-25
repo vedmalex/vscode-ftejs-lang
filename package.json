@@ -1,0 +1,61 @@
+{
+    "name": "fte-js-lang",
+    "displayName": "fte.js-lang",
+    "description": "syntax highlight for fte.js templates",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.56.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "ftejs",
+                "aliases": [
+                    "fte.js template",
+                    "ftejs"
+                ],
+                "extensions": [
+                    "njs",
+                    "njst",
+                    "fte",
+                    "nhtml"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "ftejs",
+                "scopeName": "source.ftejs-comment",
+                "path": "./syntaxes/ftejs-comment.tmLanguage.json",
+                "injectTo": [
+                    "source.js"
+                ],
+                "embeddedLanguages": {
+                    "meta.embedded.block.javascript": "javascript"
+                }
+            },
+            {
+                "language": "ftejs",
+                "scopeName": "source.ftejs",
+                "path": "./syntaxes/ftejs.tmLanguage.json",
+                "embeddedLanguages": {
+                    "meta.embedded.block.javascript": "javascript"
+                }
+            },
+            {
+                "language": "ftejs",
+                "scopeName": "source.ftejs",
+                "path": "./syntaxes/ftejs.tmLanguage.json",
+                "injectTo": [
+                    "source.js",
+                    "source.ts",
+                    "text.html"
+                ]
+            }
+        ]
+    }
+}

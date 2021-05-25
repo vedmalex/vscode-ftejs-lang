@@ -1,0 +1,120 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "fte.js template",
+	"injectionSelector": [
+		"L:source.ts",
+		"L:source.js",
+		"L:source.html",
+		"L:text.html.derivative",
+		"L:comment",
+		"L:comment.block.html",
+		"L:comment.block.js",
+		"L:comment.line.double-slash.js",
+		"L:comment.block.ts",
+		"L:comment.line.double-slash.ts"
+	],
+	"patterns": [
+		{
+			"match": "<#(-|@)|#>",
+			"name": "keyword.control.ftejs"
+		},
+		{
+			"include": "#directiveBlock"
+		},
+		{
+			"include": "#codeblock"
+		},
+		{
+			"include": "#expressionBlock"
+		},
+		{
+			"include": "source.js"
+		}
+	],
+	"repository": {
+		"codeblock": {
+			"name": "meta.embedded.code.block",
+			"begin": "\\<\\#\\-?",
+			"end": "\\-?\\#>",
+			"patterns": [
+				{
+					"include": "source.js"
+				}
+			],
+			"contentName": "meta.function.expression.js"
+		},
+		"expressionBlock": {
+			"name": "meta.embedded.expression",
+			"begin": "#{|!{",
+			"end": "}",
+			"patterns": [
+				{
+					"include": "meta.embedded.expression.js"
+				}
+			],
+			"contentName": "punctuation.definition.block.js"
+		},
+		"directiveBlock": {
+			"name": "meta.embedded.directive.block",
+			"begin": "<#@",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.paren.open"
+				}
+			},
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.paren.open"
+				}
+			},
+			"end": "#>",
+			"patterns": [
+				{
+					"include": "#stringsq"
+				},
+				{
+					"include": "#stringdq"
+				},
+				{
+					"include": "#directiveName"
+				}
+			],
+			"contentName": "punctuation.definition.block.js"
+		},
+		"directiveName": {
+			"name": "meta.embedded.directive.name",
+			"patterns": [
+				{
+					"name": "keyword.directive.ftejs",
+					"match": "\\b[^'\"]\\w+\\b"
+				}
+			],
+			"contentName": "variable.other.constant.js"
+		},
+		"stringdq": {
+			"name": "string.quoted.double.ftejs",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.ftejs",
+					"match": "\\\\."
+				}
+			],
+			"contentName": "string.quoted.single.js"
+		},
+		"stringsq": {
+			"name": "string.quoted.single.ftejs",
+			"begin": "'",
+			"end": "'",
+			"patterns": [
+				{
+					"name": "constant.character.escape.ftejs",
+					"match": "\\\\."
+				}
+			],
+			"contentName": "string.quoted.double.js"
+		}
+	},
+	"scopeName": "source.ftejs"
+}

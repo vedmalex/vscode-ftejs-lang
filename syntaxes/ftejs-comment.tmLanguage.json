@@ -1,0 +1,27 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "fte.js template",
+	"injectionSelector": [
+		"L:comment"
+	],
+	"patterns": [
+		{
+			"begin": "<#(-|@)?",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.paren.open"
+				}
+			},
+			"end": "-?#>",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.paren.close"
+				}
+			},
+			"name": "comment.block.ftejs",
+			"contentName": "comment.block"
+		}
+	],
+	"repository": {},
+	"scopeName": "source.ftejs-comment"
+}

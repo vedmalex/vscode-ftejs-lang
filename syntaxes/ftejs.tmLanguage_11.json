@@ -1,0 +1,91 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "fte.js template",
+	"injectionSelector": [
+		"L:source.ts",
+		"L:source.js",
+		"L:source.html",
+		"L:text.html.derivative",
+		"L:comment.block.html",
+		"L:comment.block.js",
+		"L:comment.line.double-slash.js",
+		"L:comment.block.ts",
+		"L:comment.line.double-slash.ts"
+	],
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#codeblocks"
+		},
+		{
+			"include": "#expressions"
+		}
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [
+				{
+					"name": "keyword.control.ftejs",
+					"match": "\\b(alias|noIndent|context|end|block|requireAs|slot|content|partial|extend)\\b"
+				}
+			]
+		},
+		"strings": {
+			"name": "string.quoted.double.ftejs",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.ftejs",
+					"match": "\\\\."
+				}
+			]
+		},
+		"codeblocks": {
+			"begin": "<#-",
+			"end": "-#>",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.paren.open"
+				}
+			},
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.paren.close"
+				}
+			},
+			"name": "meta.embedded.block.javascript",
+			"patterns": [
+				{
+					"include": "source.js"
+				}
+			]
+		},
+		"expressions": {
+			"begin": "{{&|{{|#{|!{",
+			"end": "}}|}",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.paren.open"
+				}
+			},
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.paren.close"
+				}
+			},
+			"name": "meta.embedded.expression.javascript",
+			"patterns": [
+				{
+					"include": "source.js"
+				}
+			]
+		}
+	},
+	"scopeName": "source.ftejs"
+}
