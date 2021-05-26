@@ -1,6 +1,11 @@
 {
     "name": "fte-js-lang",
+    "publisher": "vedmalex",
     "displayName": "fte.js-lang",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/pushqrdx/vscode-inline-html.git"
+    },
     "description": "syntax highlight for fte.js templates",
     "version": "0.0.1",
     "engines": {
