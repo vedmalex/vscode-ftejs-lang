@@ -31,19 +31,7 @@
             {
                 "language": "fte",
                 "scopeName": "text.fte",
-                "path": "./syntaxes/fte.tmLanguage.json",
-                "embeddedLanguages": {
-                    "meta.tag.js": "jsx-tags",
-                    "meta.tag.without-attributes.js": "jsx-tags",
-                    "meta.tag.attributes.js": "fte-js",
-                    "meta.embedded.expression.js": "fte-js"
-                },
-                "tokenTypes": {
-                    "entity.name.type.instance.jsdoc": "other",
-                    "entity.name.function.tagged-template": "other",
-                    "meta.import string.quoted": "other",
-                    "variable.other.jsdoc": "other"
-                }
+                "path": "./syntaxes/fte.tmLanguage.json"
             }
         ]
     }

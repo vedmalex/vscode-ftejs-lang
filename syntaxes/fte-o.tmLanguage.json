@@ -1,0 +1,293 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "text.fte",
+  "patterns": [
+    {
+      "include": "#main"
+    }
+  ],
+  "scopeName": "text.fte",
+  "repository": {
+    "main": {
+      "patterns": [
+        {
+          "match": "(<#-?\\s+end\\s+-?#>)",
+          "name": "invalid.illegal.template"
+        },
+        {
+          "begin": "(<#-?\\s+(block|slot)\\s+.+\\s:\\s+-?#>)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.xml.template"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#main__1"
+            }
+          ],
+          "end": "(<#-?\\s+end\\s+-?#>)",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.xml.template"
+            }
+          }
+        },
+        {
+          "begin": "(<#@)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.xml.template"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#main__2"
+            }
+          ],
+          "end": "(-?#>)",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.xml.template"
+            }
+          }
+        },
+        {
+          "begin": "(#{|!{)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.xml.template"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#main__3"
+            }
+          ],
+          "end": "(})",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.xml.template"
+            }
+          }
+        },
+        {
+          "begin": "(<#-?)(?!\\{)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.xml.template"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#main__4"
+            }
+          ],
+          "end": "(-?#>)",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.xml.template"
+            }
+          }
+        },
+        {
+          "match": "(-?#>)",
+          "name": "invalid.illegal.template"
+        }
+      ]
+    },
+    "codeblock": {
+      "patterns": [
+        {
+          "match": "\\b(forEach|for|if|try|catch|do|while|var|const|let|function)\\b",
+          "name": "keyword.control.conditional.js.template"
+        },
+        {
+          "match": "(chunkStart|chunkEnd)",
+          "name": "entity.name.type.js.template"
+        }
+      ]
+    },
+    "main__1": {
+      "patterns": [
+        {
+          "include": "#main"
+        }
+      ]
+    },
+    "main__2": {
+      "patterns": [
+        {
+          "include": "#registeredDirectives"
+        }
+      ]
+    },
+    "main__3": {
+      "patterns": [
+        {
+          "include": "#registeredCommands"
+        },
+        {
+          "include": "#primitives"
+        }
+      ]
+    },
+    "main__4": {
+      "patterns": [
+        {
+          "include": "#codeblock"
+        }
+      ]
+    },
+    "primitives": {
+      "patterns": [
+        {
+          "begin": "(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.accessor.js.template"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#primitives__1"
+            }
+          ],
+          "end": "(\\))",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.accessor.js.template"
+            }
+          }
+        },
+        {
+          "match": "(\\))",
+          "name": "invalid.illegal.template"
+        },
+        {
+          "match": "(,)",
+          "name": "punctuation.accessor.js.template"
+        },
+        {
+          "match": "(\\s|\\t)",
+          "name": "punctuation.accessor.js.template"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "match": "([\\.\\+\\w\\d\\x{005c}\\:\\!]*)",
+          "name": "variable.other.readwrite.js.template"
+        }
+      ]
+    },
+    "primitives__1": {
+      "patterns": [
+        {
+          "include": "#primitives"
+        },
+        {
+          "include": "#strings"
+        }
+      ]
+    },
+    "registeredCommands": {
+      "patterns": [
+        {
+          "begin": "(partial|content)(?=\\s*\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.type.js.template"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#registeredCommands__1"
+            }
+          ],
+          "end": "(\\s*)(?=})",
+          "endCaptures": {
+            "1": {
+              "name": "comment.template"
+            }
+          }
+        }
+      ]
+    },
+    "registeredCommands__1": {
+      "patterns": [
+        {
+          "include": "#primitives"
+        }
+      ]
+    },
+    "registeredDirectives": {
+      "patterns": [
+        {
+          "match": "(noIndent)(?=\\s*-?#>)",
+          "name": "entity.name.type.js.template"
+        },
+        {
+          "begin": "(chunks|context|alias|extend|requireAs)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.type.js.template"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#registeredDirectives__1"
+            }
+          ],
+          "end": "(\\s*)(?=-?#>)",
+          "endCaptures": {
+            "1": {
+              "name": "comment.template"
+            }
+          }
+        }
+      ]
+    },
+    "registeredDirectives__1": {
+      "patterns": [
+        {
+          "include": "#strings"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "begin": "(\")",
+          "beginCaptures": {
+            "1": {
+              "name": "string.quoted.double.js.template"
+            }
+          },
+          "contentName": "string.quoted.double.js.template",
+          "end": "(\")",
+          "endCaptures": {
+            "1": {
+              "name": "string.quoted.double.js.template"
+            }
+          }
+        },
+        {
+          "begin": "(')",
+          "beginCaptures": {
+            "1": {
+              "name": "string.quoted.single.js.template"
+            }
+          },
+          "contentName": "string.quoted.single.js.template",
+          "end": "(')",
+          "endCaptures": {
+            "1": {
+              "name": "string.quoted.single.js.template"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
