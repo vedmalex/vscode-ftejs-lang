@@ -7,7 +7,7 @@
         "url": "https://github.com/pushqrdx/vscode-inline-html.git"
     },
     "description": "syntax highlight for fte.js templates",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "engines": {
         "vscode": "^1.56.0"
     },
@@ -24,10 +24,8 @@
                 ],
                 "extensions": [
                     "njs",
-                    "n.js",
                     "njst",
-                    "nhtml",
-                    "n.html"
+                    "nhtml"
                 ],
                 "configuration": "./language-configuration.json"
             }
