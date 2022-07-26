@@ -17,6 +17,22 @@
 		"fte": {
 			"patterns": [
 				{
+					"begin":"<\\*",
+					"beginCaptures": {
+						"0":{
+							"name":"punctuation.definition.template-expression.begin.js"
+						}
+					},
+					"end": "\\*>",
+					"name":"comment.block.documentation",
+					"contentName":"strong",
+					"endCaptures": {
+						"0":{
+							"name": "punctuation.definition.template-expression.end.js"
+						}
+					}
+				},
+				{
 					"begin": "<#[-@]?",
 					"beginCaptures": {
 						"0": {
