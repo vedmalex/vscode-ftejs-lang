@@ -71,6 +71,22 @@
 					},
 					"name": "meta.template.expression.js",
 					"contentName": "strong"
+				},
+				{
+					"begin": "{{&?",
+					"beginCaptures": {
+						"0": {
+							"name": "punctuation.definition.template-expression.begin.js"
+						}
+					},
+					"end": "}}",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.definition.template-expression.end.js"
+						}
+					},
+					"name": "meta.template.expression.js",
+					"contentName": "strong"
 				}
 			]
 		},
