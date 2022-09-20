@@ -7,7 +7,7 @@
         "url": "https://github.com/vedmalex/vscode-ftejs-lang.git"
     },
     "description": "syntax highlight for fte.js templates",
-    "version": "1.0.2",
+    "version": "1.0.4",
     "engines": {
         "vscode": "^1.56.0"
     },
