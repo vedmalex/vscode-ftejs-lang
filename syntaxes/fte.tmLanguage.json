@@ -1,262 +1,262 @@
 {
-	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-	"name": "fast Template engine",
-	"scopeName": "text.fte",
-	"patterns": [
-		{
-			"include": "#fte"
-		}
-	],
-	"repository": {
-		"fte": {
-			"patterns": [
-				{
-					"begin":"<\\*",
-					"beginCaptures": {
-						"0":{
-							"name":"punctuation.definition.template-expression.begin.js"
-						}
-					},
-					"end": "\\*>",
-					"name":"comment.block.documentation",
-					"contentName":"strong",
-					"endCaptures": {
-						"0":{
-							"name": "punctuation.definition.template-expression.end.js"
-						}
-					}
-				},
-				{
-					"begin": "<#([-@][^{])?",
-					"beginCaptures": {
-						"0": {
-							"name": "punctuation.definition.template-expression.begin.js"
-						}
-					},
-					"end": "-?#>",
-					"endCaptures": {
-						"0": {
-							"name": "punctuation.definition.template-expression.end.js"
-						}
-					},
-					"name": "text.fte.embedded.js",
-					"contentName": "strong",
-					"patterns": [
-						{
-							"include": "#comments"
-						},
-						{
-							"include": "#js-reserverd"
-						}
-					]
-				},
-				{
-					"begin": "[#!]{",
-					"beginCaptures": {
-						"0": {
-							"name": "punctuation.definition.template-expression.begin.js"
-						}
-					},
-					"end": "}",
-					"endCaptures": {
-						"0": {
-							"name": "punctuation.definition.template-expression.end.js"
-						}
-					},
-					"name": "meta.template.expression.js",
-					"contentName": "strong",
-					"patterns": [
-						{
-							"include": "#balancing"
-						}
-					]
-				},
-				{
-					"begin": "<%[-_=#%]?",
-					"beginCaptures": {
-						"0": {
-							"name": "punctuation.definition.template-expression.begin.js"
-						}
-					},
-					"end": "[-_]?%>",
-					"endCaptures": {
-						"0": {
-							"name": "punctuation.definition.template-expression.end.js"
-						}
-					},
-					"name": "meta.template.expression.js",
-					"contentName": "strong"
-				}
-			]
-		},
-		"comments": {
-			"patterns": [
-				{
-					"patterns": [
-						{
-							"name": "comment.block.documentation.js",
-							"begin": "/\\*\\*(?!/)",
-							"beginCaptures": {
-								"0": {
-									"name": "punctuation.definition.comment.js"
-								}
-							},
-							"end": "\\*/",
-							"endCaptures": {
-								"0": {
-									"name": "punctuation.definition.comment.js"
-								}
-							}
-						},
-						{
-							"name": "comment.block.js",
-							"begin": "(/\\*)(?:\\s*((@)internal)(?=\\s|(\\*/)))?",
-							"beginCaptures": {
-								"1": {
-									"name": "punctuation.definition.comment.js"
-								},
-								"2": {
-									"name": "storage.type.internaldeclaration.js"
-								},
-								"3": {
-									"name": "punctuation.decorator.internaldeclaration.js"
-								}
-							},
-							"end": "\\*/",
-							"endCaptures": {
-								"0": {
-									"name": "punctuation.definition.comment.js"
-								}
-							}
-						},
-						{
-							"begin": "(^[ \\t]+)?((//)(?:\\s*((@)internal)(?=\\s|$))?)",
-							"beginCaptures": {
-								"1": {
-									"name": "punctuation.whitespace.comment.leading.js"
-								},
-								"2": {
-									"name": "comment.line.double-slash.js"
-								},
-								"3": {
-									"name": "punctuation.definition.comment.js"
-								},
-								"4": {
-									"name": "storage.type.internaldeclaration.js"
-								},
-								"5": {
-									"name": "punctuation.decorator.internaldeclaration.js"
-								}
-							},
-							"end": "(?=$)",
-							"contentName": "comment.line.double-slash.js"
-						}
-					]
-				},
-				{
-					"begin": "(^[ \\t]+)?((//)(?:\\s*((@)internal)(?=\\s|$))?)",
-					"beginCaptures": {
-						"1": {
-							"name": "punctuation.whitespace.comment.leading.js"
-						},
-						"2": {
-							"name": "comment.line.double-slash.js"
-						},
-						"3": {
-							"name": "punctuation.definition.comment.js"
-						},
-						"4": {
-							"name": "storage.type.internaldeclaration.js"
-						},
-						"5": {
-							"name": "punctuation.decorator.internaldeclaration.js"
-						}
-					},
-					"end": "(?=^)",
-					"contentName": "comment.line.double-slash.js"
-				}
-			]
-		},
-		"balancing":{
-			"begin": "{",
-			"end": "}",
-			"patterns": [
-						{
-							"include": "#balancing"
-						}
-			]
-		},
-		"js-reserverd": {
-			"patterns": [
-				{
-					"name": "keyword.other",
-					"match": "\\b(abstract|arguments|await|boolean|break|byte|case|catch|char|class|const|continue|debugger|default|delete|do|double|else|enum|eval|export|extends|false|final|finally|float|for|function|goto|if|implements|import|in|instanceof|int|interface|let|long|native|new|null|package|private|protected|public|return|short|static|super|switch|synchronized|this|throw|throws|transient|true|try|typeof|var|void|volatile|while|with|yield)\\b"
-				},
-				{
-					"match": "[\\,\\.\\;\\*\\=\\-\\+\\>\\<\\!\\|]",
-					"name": "punctuation"
-				},
-				{
-					"match": "[\\{\\[\\(]",
-					"name": "punctuation.definition.block.begin.js"
-				},
-				{
-					"match": "[\\]\\}\\)]",
-					"name": "punctuation.definition.block.end.js"
-				},
-				{
-					"match": "\\d",
-					"name": "constant.numeric"
-				},
-				{
-					"name": "string.quoted.double.js",
-					"begin": "\"",
-					"end": "\"",
-					"beginCaptures": {
-						"0": {
-							"name": "punctuation.definition.string.begin.js"
-						}
-					},
-					"endCaptures": {
-						"0": {
-							"name": "punctuation.definition.string.end.js"
-						}
-					}
-				},
-				{
-					"name": "string.quoted.single.js",
-					"begin": "'",
-					"end": "'",
-					"beginCaptures": {
-						"0": {
-							"name": "punctuation.definition.string.begin.js"
-						}
-					},
-					"endCaptures": {
-						"0": {
-							"name": "punctuation.definition.string.end.js"
-						}
-					}
-				},
-				{
-					"name": "string.template.js",
-					"begin": "([_$[:alpha:]][_$[:alnum:]]*)?(`)",
-					"beginCaptures": {
-						"1": {
-							"name": "entity.name.function.tagged-template.js"
-						},
-						"2": {
-							"name": "punctuation.definition.string.template.begin.js"
-						}
-					},
-					"end": "`",
-					"endCaptures": {
-						"0": {
-							"name": "punctuation.definition.string.template.end.js"
-						}
-					}
-				}
-			]
-		}
-	}
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "fast Template engine",
+  "scopeName": "text.fte",
+  "patterns": [
+    {
+      "include": "#fte"
+    }
+  ],
+  "repository": {
+    "fte": {
+      "patterns": [
+        {
+          "begin": "<\\*",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.begin.js"
+            }
+          },
+          "end": "\\*>",
+          "name": "comment.block.documentation",
+          "contentName": "strong",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.end.js"
+            }
+          }
+        },
+        {
+          "begin": "<#([-@][^{])?",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.begin.js"
+            }
+          },
+          "end": "-?#>",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.end.js"
+            }
+          },
+          "name": "text.fte.embedded.js",
+          "contentName": "strong",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#js-reserverd"
+            }
+          ]
+        },
+        {
+          "begin": "[#!]{",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.begin.js"
+            }
+          },
+          "end": "}",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.end.js"
+            }
+          },
+          "name": "meta.template.expression.js",
+          "contentName": "strong",
+          "patterns": [
+            {
+              "include": "#balancing"
+            }
+          ]
+        },
+        {
+          "begin": "<%[-_=#%]?",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.begin.js"
+            }
+          },
+          "end": "[-_]?%>",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.end.js"
+            }
+          },
+          "name": "meta.template.expression.js",
+          "contentName": "strong"
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "patterns": [
+            {
+              "name": "comment.block.documentation.js",
+              "begin": "/\\*\\*(?!/)",
+              "beginCaptures": {
+                "0": {
+                  "name": "punctuation.definition.comment.js"
+                }
+              },
+              "end": "\\*/",
+              "endCaptures": {
+                "0": {
+                  "name": "punctuation.definition.comment.js"
+                }
+              }
+            },
+            {
+              "name": "comment.block.js",
+              "begin": "(/\\*)(?:\\s*((@)internal)(?=\\s|(\\*/)))?",
+              "beginCaptures": {
+                "1": {
+                  "name": "punctuation.definition.comment.js"
+                },
+                "2": {
+                  "name": "storage.type.internaldeclaration.js"
+                },
+                "3": {
+                  "name": "punctuation.decorator.internaldeclaration.js"
+                }
+              },
+              "end": "\\*/",
+              "endCaptures": {
+                "0": {
+                  "name": "punctuation.definition.comment.js"
+                }
+              }
+            },
+            {
+              "begin": "(^[ \\t]+)?((//)(?:\\s*((@)internal)(?=\\s|$))?)",
+              "beginCaptures": {
+                "1": {
+                  "name": "punctuation.whitespace.comment.leading.js"
+                },
+                "2": {
+                  "name": "comment.line.double-slash.js"
+                },
+                "3": {
+                  "name": "punctuation.definition.comment.js"
+                },
+                "4": {
+                  "name": "storage.type.internaldeclaration.js"
+                },
+                "5": {
+                  "name": "punctuation.decorator.internaldeclaration.js"
+                }
+              },
+              "end": "(?=$)",
+              "contentName": "comment.line.double-slash.js"
+            }
+          ]
+        },
+        {
+          "begin": "(^[ \\t]+)?((//)(?:\\s*((@)internal)(?=\\s|$))?)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.whitespace.comment.leading.js"
+            },
+            "2": {
+              "name": "comment.line.double-slash.js"
+            },
+            "3": {
+              "name": "punctuation.definition.comment.js"
+            },
+            "4": {
+              "name": "storage.type.internaldeclaration.js"
+            },
+            "5": {
+              "name": "punctuation.decorator.internaldeclaration.js"
+            }
+          },
+          "end": "(?=^)",
+          "contentName": "comment.line.double-slash.js"
+        }
+      ]
+    },
+    "balancing": {
+      "begin": "{",
+      "end": "}",
+      "patterns": [
+        {
+          "include": "#balancing"
+        }
+      ]
+    },
+    "js-reserverd": {
+      "patterns": [
+        {
+          "name": "keyword.other",
+          "match": "\\b(abstract|arguments|await|boolean|break|byte|case|catch|char|class|const|continue|debugger|default|delete|do|double|else|enum|eval|export|extends|false|final|finally|float|for|function|goto|if|implements|import|in|instanceof|int|interface|let|long|native|new|null|package|private|protected|public|return|short|static|super|switch|synchronized|this|throw|throws|transient|true|try|typeof|var|void|volatile|while|with|yield)\\b"
+        },
+        {
+          "match": "[\\,\\.\\;\\*\\=\\-\\+\\>\\<\\!\\|]",
+          "name": "punctuation"
+        },
+        {
+          "match": "[\\{\\[\\(]",
+          "name": "punctuation.definition.block.begin.js"
+        },
+        {
+          "match": "[\\]\\}\\)]",
+          "name": "punctuation.definition.block.end.js"
+        },
+        {
+          "match": "\\d",
+          "name": "constant.numeric"
+        },
+        {
+          "name": "string.quoted.double.js",
+          "begin": "\"",
+          "end": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.js"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.js"
+            }
+          }
+        },
+        {
+          "name": "string.quoted.single.js",
+          "begin": "'",
+          "end": "'",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.js"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.js"
+            }
+          }
+        },
+        {
+          "name": "string.template.js",
+          "begin": "([_$[:alpha:]][_$[:alnum:]]*)?(`)",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.function.tagged-template.js"
+            },
+            "2": {
+              "name": "punctuation.definition.string.template.begin.js"
+            }
+          },
+          "end": "`",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.template.end.js"
+            }
+          }
+        }
+      ]
+    }
+  }
 }
