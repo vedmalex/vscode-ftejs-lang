@@ -9,7 +9,7 @@
   "description": "syntax highlight for fte.js templates",
   "version": "1.0.4",
   "engines": {
-    "vscode": "^1.56.0"
+    "vscode": "^1.96.4"
   },
   "categories": [
     "Programming Languages"
@@ -17,24 +17,85 @@
   "contributes": {
     "languages": [
       {
-        "id": "fte",
-        "aliases": [
-          "fte",
-          "fte"
-        ],
+        "id": "template-js",
         "extensions": [
-          "njs",
-          "njst",
-          "nhtml"
+          ".njs"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "embeddedLanguages": {
+          "source.js": "javascript",
+          "text.template": "template"
+        }
+      },
+      {
+        "id": "template-html",
+        "extensions": [
+          ".nhtml"
+        ],
+        "configuration": "./language-configuration.json",
+        "embeddedLanguages": {
+          "text.html.basic": "html",
+          "text.template": "template"
+        }
+      },
+      {
+        "id": "template-typescript",
+        "extensions": [
+          ".nts"
+        ],
+        "configuration": "./language-configuration.json",
+        "embeddedLanguages": {
+          "source.ts": "typescript",
+          "text.template": "template"
+        }
+      },
+      {
+        "id": "template-markdown",
+        "extensions": [
+          ".nmd"
+        ],
+        "configuration": "./language-configuration.json",
+        "embeddedLanguages": {
+          "text.html.markdown": "markdown",
+          "text.template": "template"
+        }
       }
     ],
     "grammars": [
       {
-        "language": "fte",
-        "scopeName": "text.fte",
-        "path": "./syntaxes/fte.tmLanguage.json"
+        "language": "template-js",
+        "scopeName": "source.js.template",
+        "path": "./syntaxes/template-js.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.javascript": "javascript"
+        }
+      },
+      {
+        "language": "template-html",
+        "scopeName": "text.html.template",
+        "path": "./syntaxes/template-html.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.html": "html",
+          "meta.embedded.block.javascript": "javascript"
+        }
+      },
+      {
+        "language": "template-typescript",
+        "scopeName": "source.ts.template",
+        "path": "./syntaxes/template-typescript.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.typescript": "typescript",
+          "meta.embedded.block.javascript": "javascript"
+        }
+      },
+      {
+        "language": "template-markdown",
+        "scopeName": "text.html.markdown.template",
+        "path": "./syntaxes/template-markdown.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.markdown": "markdown",
+          "meta.embedded.block.javascript": "javascript"
+        }
       }
     ]
   }

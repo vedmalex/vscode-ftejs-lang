@@ -1,0 +1,59 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Template TypeScript",
+  "scopeName": "source.ts.template",
+  "patterns": [
+    {
+      "include": "#template-expressions"
+    },
+    {
+      "include": "source.ts"
+    }
+  ],
+  "repository": {
+    "template-expressions": {
+      "patterns": [
+        {
+          "begin": "#{",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.begin"
+            }
+          },
+          "end": "}",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.end"
+            }
+          },
+          "contentName": "meta.embedded.block.javascript",
+          "patterns": [
+            {
+              "include": "source.js"
+            }
+          ]
+        },
+        {
+          "begin": "<#",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-block.begin"
+            }
+          },
+          "end": "#>",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-block.end"
+            }
+          },
+          "contentName": "meta.embedded.block.javascript",
+          "patterns": [
+            {
+              "include": "source.js"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
