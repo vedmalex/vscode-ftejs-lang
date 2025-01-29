@@ -1,41 +1,41 @@
 {
-    "name": "fte-js-lang",
-    "publisher": "vedmalex",
-    "displayName": "fte.js-lang",
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/vedmalex/vscode-ftejs-lang.git"
-    },
-    "description": "syntax highlight for fte.js templates",
-    "version": "1.0.4",
-    "engines": {
-        "vscode": "^1.56.0"
-    },
-    "categories": [
-        "Programming Languages"
-    ],
-    "contributes": {
-        "languages": [
-            {
-                "id": "fte",
-                "aliases": [
-                    "fte",
-                    "fte"
-                ],
-                "extensions": [
-                    "njs",
-                    "njst",
-                    "nhtml"
-                ],
-                "configuration": "./language-configuration.json"
-            }
+  "name": "fte-js-lang",
+  "publisher": "vedmalex",
+  "displayName": "fte.js-lang",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vedmalex/vscode-ftejs-lang.git"
+  },
+  "description": "syntax highlight for fte.js templates",
+  "version": "1.0.4",
+  "engines": {
+    "vscode": "^1.56.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "fte",
+        "aliases": [
+          "fte",
+          "fte"
         ],
-        "grammars": [
-            {
-                "language": "fte",
-                "scopeName": "text.fte",
-                "path": "./syntaxes/fte.tmLanguage.json"
-            }
-        ]
-    }
+        "extensions": [
+          "njs",
+          "njst",
+          "nhtml"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "fte",
+        "scopeName": "text.fte",
+        "path": "./syntaxes/fte.tmLanguage.json"
+      }
+    ]
+  }
 }

@@ -8,6 +8,13 @@
     }
   ],
   "repository": {
+    "javascript": {
+      "patterns": [
+        {
+          "include": "source.js"
+        }
+      ]
+    },
     "fte": {
       "patterns": [
         {
@@ -44,9 +51,6 @@
           "patterns": [
             {
               "include": "#comments"
-            },
-            {
-              "include": "#js-reserverd"
             }
           ]
         },
@@ -57,6 +61,7 @@
               "name": "punctuation.definition.template-expression.begin.js"
             }
           },
+
           "end": "}",
           "endCaptures": {
             "0": {
@@ -85,7 +90,15 @@
             }
           },
           "name": "meta.template.expression.js",
-          "contentName": "strong"
+          "contentName": "strong",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#javascript"
+            }
+          ]
         }
       ]
     },
