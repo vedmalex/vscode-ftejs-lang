@@ -1,4 +1,21 @@
-import { createConnection, TextDocuments, ProposedFeatures, InitializeParams, CompletionItem, CompletionItemKind, TextDocumentSyncKind } from 'vscode-languageserver/node';
+import {
+  createConnection,
+  TextDocuments,
+  ProposedFeatures,
+  InitializeParams,
+  CompletionItem,
+  CompletionItemKind,
+  TextDocumentSyncKind,
+  Diagnostic,
+  DiagnosticSeverity,
+  Location,
+  Range,
+  Position,
+  TextEdit,
+  SignatureHelp,
+  SignatureInformation,
+  ParameterInformation
+} from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -33,8 +50,10 @@ connection.onInitialize((params: InitializeParams) => {
       completionProvider: { resolveProvider: false, triggerCharacters: ['{', '<', '@', '\'', '"'] },
       hoverProvider: true,
       documentSymbolProvider: true,
-      definitionProvider: false,
-      referencesProvider: false,
+      definitionProvider: true,
+      referencesProvider: true,
+      documentFormattingProvider: true,
+      signatureHelpProvider: { triggerCharacters: ['(', '"', "'"] },
     },
   };
 });
@@ -51,6 +70,52 @@ function parseContent(text: string) {
   } catch {
     return undefined;
   }
+}
+
+function computeDiagnostics(doc: TextDocument): Diagnostic[] {
+  const text = doc.getText();
+  const diags: Diagnostic[] = [];
+  // Try strict parse: if it throws, surface generic diagnostic
+  try {
+    parseContent(text);
+  } catch (e: any) {
+    const message = typeof e?.message === 'string' ? e.message : 'Parse error';
+    diags.push({
+      severity: DiagnosticSeverity.Error,
+      range: Range.create(Position.create(0, 0), Position.create(0, 1)),
+      message,
+      source: 'fte.js'
+    });
+  }
+  // Light structural validation: block/slot matching
+  const openRe = /<#-?\s*(block|slot)\s+(["'`])([^"'`]+?)\1\s*:\s*-?#>/g;
+  const endRe = /<#-?\s*end\s*-?#>/g;
+  type StackItem = { name: string; index: number };
+  const stack: StackItem[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = openRe.exec(text))) {
+    stack.push({ name: m[3], index: m.index });
+  }
+  // Scan ends and pop; if too many ends -> error
+  let eMatch: RegExpExecArray | null;
+  let lastIdx = 0;
+  while ((eMatch = endRe.exec(text))) {
+    lastIdx = eMatch.index;
+    if (stack.length === 0) {
+      const start = doc.positionAt(eMatch.index);
+      const end = doc.positionAt(eMatch.index + eMatch[0].length);
+      diags.push({ severity: DiagnosticSeverity.Error, range: { start, end }, message: 'Unmatched end', source: 'fte.js' });
+    } else {
+      stack.pop();
+    }
+  }
+  // Unclosed blocks
+  for (const it of stack) {
+    const start = doc.positionAt(it.index);
+    const end = doc.positionAt(it.index + 1);
+    diags.push({ severity: DiagnosticSeverity.Error, range: { start, end }, message: `Unclosed ${it.name}`, source: 'fte.js' });
+  }
+  return diags;
 }
 
 connection.onCompletion(({ textDocument, position }) => {
@@ -101,6 +166,121 @@ connection.onHover(({ textDocument, position }) => {
   return null;
 });
 
+connection.onDefinition(({ textDocument, position }) => {
+  const doc = documents.get(textDocument.uri);
+  if (!doc) return null;
+  const text = doc.getText();
+  const ast = parseContent(text) as any;
+  const offset = doc.offsetAt(position);
+  // Go to block/slot by content('name')
+  const before = text.slice(Math.max(0, offset - 100), offset);
+  const m = before.match(/content\(\s*(["'`])([^"'`)\}]*)$/);
+  const name = m?.[2];
+  if (name && ast?.blocks?.[name]) {
+    const first = ast.blocks[name].main?.[0];
+    if (first) {
+      const loc = Location.create(textDocument.uri, Range.create(doc.positionAt(first.pos), doc.positionAt(first.pos + first.content.length)));
+      return loc;
+    }
+  }
+  // If on a block/slot declaration name, just return its own location
+  const openRe = /<#-?\s*(block|slot)\s+(["'`])([^"'`]+?)\1\s*:\s*-?#>/g;
+  let match: RegExpExecArray | null;
+  while ((match = openRe.exec(text))) {
+    const nameStart = match.index + match[0].indexOf(match[3]);
+    const nameEnd = nameStart + match[3].length;
+    if (offset >= nameStart && offset <= nameEnd) {
+      return Location.create(textDocument.uri, Range.create(doc.positionAt(match.index), doc.positionAt(match.index + match[0].length)));
+    }
+  }
+  return null;
+});
+
+connection.onReferences(({ textDocument, position }) => {
+  const doc = documents.get(textDocument.uri);
+  if (!doc) return [];
+  const text = doc.getText();
+  const offset = doc.offsetAt(position);
+  // Determine selected block name
+  const openRe = /<#-?\s*(block|slot)\s+(["'`])([^"'`]+?)\1\s*:\s*-?#>/g;
+  let selected: string | undefined;
+  let match: RegExpExecArray | null;
+  while ((match = openRe.exec(text))) {
+    const nameStart = match.index + match[0].indexOf(match[3]);
+    const nameEnd = nameStart + match[3].length;
+    if (offset >= nameStart && offset <= nameEnd) {
+      selected = match[3];
+      break;
+    }
+  }
+  if (!selected) return [];
+  // Collect all references via content('name') and declaration
+  const res: Location[] = [];
+  // declaration
+  if (match) {
+    res.push(Location.create(textDocument.uri, Range.create(doc.positionAt(match.index), doc.positionAt(match.index + match[0].length))));
+  }
+  // usages
+  const usageRe = new RegExp(String.raw`content\(\s*(["'\`])${selected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\1`, 'g');
+  let u: RegExpExecArray | null;
+  while ((u = usageRe.exec(text))) {
+    const start = doc.positionAt(u.index);
+    const end = doc.positionAt(u.index + u[0].length);
+    res.push(Location.create(textDocument.uri, Range.create(start, end)));
+  }
+  return res;
+});
+
+connection.onSignatureHelp(({ textDocument, position }) => {
+  const doc = documents.get(textDocument.uri);
+  if (!doc) return null;
+  const text = doc.getText();
+  const offset = doc.offsetAt(position);
+  const before = text.slice(Math.max(0, offset - 60), offset);
+  const m = before.match(/<#@\s*(\w+)\s*\([^\)]*$/);
+  const name = m?.[1];
+  if (!name) return null;
+  const sig: SignatureInformation = {
+    label: `<#@ ${name}(...) #>`,
+    documentation: `fte.js directive ${name}`,
+    parameters: [ { label: '...params' } ]
+  };
+  const help: SignatureHelp = { signatures: [sig], activeSignature: 0, activeParameter: 0 };
+  return help;
+});
+
+connection.onDocumentFormatting(({ textDocument, options }) => {
+  const doc = documents.get(textDocument.uri);
+  if (!doc) return [];
+  const indentSize = options.tabSize || 2;
+  const lines = doc.getText().split(/\r?\n/);
+  let level = 0;
+  const openRe = /<#-?\s*(block|slot)\s+(["'`])([^"'`]+?)\1\s*:\s*-?#>/;
+  const endRe = /<#-?\s*end\s*-?#>/;
+  const formatted = lines.map((line) => {
+    const trimmed = line.replace(/\s+$/,'');
+    if (endRe.test(trimmed)) {
+      level = Math.max(0, level - 1);
+    }
+    const indented = (level > 0 ? ' '.repeat(level * indentSize) : '') + trimmed.trimStart();
+    if (openRe.test(trimmed) && !endRe.test(trimmed)) {
+      level += 1;
+    }
+    return indented;
+  }).join('\n');
+  const fullRange = Range.create(Position.create(0,0), doc.positionAt(doc.getText().length));
+  return [TextEdit.replace(fullRange, formatted.endsWith('\n') ? formatted : formatted + '\n')];
+});
+
+// publish diagnostics on open/change
+documents.onDidChangeContent(({ document }) => {
+  const diags = computeDiagnostics(document);
+  connection.sendDiagnostics({ uri: document.uri, diagnostics: diags });
+});
+documents.onDidOpen(({ document }) => {
+  const diags = computeDiagnostics(document);
+  connection.sendDiagnostics({ uri: document.uri, diagnostics: diags });
+});
 connection.onDocumentSymbol(({ textDocument }) => {
   const doc = documents.get(textDocument.uri);
   if (!doc) return [];
