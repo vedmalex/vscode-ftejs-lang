@@ -5,6 +5,7 @@ import {
   InitializeParams,
   CompletionItem,
   CompletionItemKind,
+  InsertTextFormat,
   TextDocumentSyncKind,
   Diagnostic,
   DiagnosticSeverity,
@@ -54,6 +55,7 @@ connection.onInitialize((params: InitializeParams) => {
       referencesProvider: true,
       documentFormattingProvider: true,
       signatureHelpProvider: { triggerCharacters: ['(', '"', "'"] },
+      documentOnTypeFormattingProvider: { firstTriggerCharacter: '>', moreTriggerCharacter: ['\n'] },
     },
   };
 });
@@ -115,6 +117,70 @@ function computeDiagnostics(doc: TextDocument): Diagnostic[] {
     const end = doc.positionAt(it.index + 1);
     diags.push({ severity: DiagnosticSeverity.Error, range: { start, end }, message: `Unclosed ${it.name}`, source: 'fte.js' });
   }
+
+  // Directive validation
+  const dirRe = /<#@([\s\S]*?)#>/g;
+  let d: RegExpExecArray | null;
+  while ((d = dirRe.exec(text))) {
+    const content = d[1].trim();
+    const startPos = doc.positionAt(d.index);
+    const endPos = doc.positionAt(d.index + d[0].length);
+    const nameMatch = content.match(/^(\w+)/);
+    if (!nameMatch) {
+      diags.push({ severity: DiagnosticSeverity.Warning, range: { start: startPos, end: endPos }, message: 'Empty directive', source: 'fte.js' });
+      continue;
+    }
+    const name = nameMatch[1];
+    const paramsRaw = content.slice(name.length).trim();
+    // extract params inside parentheses if present, otherwise split by spaces/commas
+    let params: string[] = [];
+    const paren = paramsRaw.match(/^\(([^)]*)\)/);
+    if (paren) {
+      params = paren[1]
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(s => s.replace(/^['"`]|['"`]$/g, ''));
+    } else if (paramsRaw.length) {
+      params = paramsRaw
+        .split(/\s+/)
+        .map(s => s.trim().replace(/^['"`]|['"`]$/g, ''))
+        .filter(Boolean);
+    }
+    const range = { start: startPos, end: endPos };
+    const requireNoParams = ['includeMainChunk', 'useHash', 'noContent', 'noSlots', 'noBlocks', 'noPartial', 'noOptions', 'promise', 'callback'];
+    switch (name) {
+      case 'extend':
+      case 'context':
+        if (params.length < 1) {
+          diags.push({ severity: DiagnosticSeverity.Warning, range, message: `Directive ${name} requires 1 parameter`, source: 'fte.js' });
+        }
+        break;
+      case 'alias':
+        if (params.length < 1) {
+          diags.push({ severity: DiagnosticSeverity.Warning, range, message: 'Directive alias requires at least 1 parameter', source: 'fte.js' });
+        }
+        break;
+      case 'requireAs':
+        if (params.length !== 2) {
+          diags.push({ severity: DiagnosticSeverity.Warning, range, message: 'Directive requireAs requires exactly 2 parameters', source: 'fte.js' });
+        }
+        break;
+      case 'deindent':
+        if (params.length > 1) {
+          diags.push({ severity: DiagnosticSeverity.Warning, range, message: 'Directive deindent accepts at most 1 numeric parameter', source: 'fte.js' });
+        } else if (params.length === 1 && Number.isNaN(Number(params[0]))) {
+          diags.push({ severity: DiagnosticSeverity.Warning, range, message: 'Directive deindent parameter must be a number', source: 'fte.js' });
+        }
+        break;
+      default:
+        if (!DIRECTIVES.includes(name)) {
+          diags.push({ severity: DiagnosticSeverity.Warning, range, message: `Unknown directive: ${name}`, source: 'fte.js' });
+        } else if (requireNoParams.includes(name) && params.length > 0) {
+          diags.push({ severity: DiagnosticSeverity.Warning, range, message: `Directive ${name} does not accept parameters`, source: 'fte.js' });
+        }
+    }
+  }
   return diags;
 }
 
@@ -137,6 +203,37 @@ connection.onCompletion(({ textDocument, position }) => {
   // block/slot keywords
   if (/<#-?\s*(block|slot)\s+['"`][^'"`]*$/.test(prefix)) {
     items.push({ label: "end", kind: CompletionItemKind.Keyword });
+  }
+
+  // block/slot snippets with auto end
+  if (/<#-?\s*$/.test(prefix)) {
+    const snippets: CompletionItem[] = [
+      {
+        label: 'block (with end)',
+        kind: CompletionItemKind.Snippet,
+        insertTextFormat: InsertTextFormat.Snippet,
+        insertText: "<# block '${1:name}' : #>\n\t$0\n<# end #>"
+      },
+      {
+        label: 'block trimmed (with end)',
+        kind: CompletionItemKind.Snippet,
+        insertTextFormat: InsertTextFormat.Snippet,
+        insertText: "<#- block '${1:name}' : -#>\n\t$0\n<#- end -#>"
+      },
+      {
+        label: 'slot (with end)',
+        kind: CompletionItemKind.Snippet,
+        insertTextFormat: InsertTextFormat.Snippet,
+        insertText: "<# slot '${1:name}' : #>\n\t$0\n<# end #>"
+      },
+      {
+        label: 'slot trimmed (with end)',
+        kind: CompletionItemKind.Snippet,
+        insertTextFormat: InsertTextFormat.Snippet,
+        insertText: "<#- slot '${1:name}' : -#>\n\t$0\n<#- end -#>"
+      }
+    ];
+    items.push(...snippets);
   }
 
   // content()/partial() suggestions inside #{ ... }
@@ -253,17 +350,32 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
   const doc = documents.get(textDocument.uri);
   if (!doc) return [];
   const indentSize = options.tabSize || 2;
-  const lines = doc.getText().split(/\r?\n/);
+  const text = doc.getText();
+  const lines = text.split(/\r?\n/);
   let level = 0;
-  const openRe = /<#-?\s*(block|slot)\s+(["'`])([^"'`]+?)\1\s*:\s*-?#>/;
-  const endRe = /<#-?\s*end\s*-?#>/;
+  const openTpl = /<#-?\s*(block|slot)\s+(["'`])([^"'`]+?)\1\s*:\s*-?#>/;
+  const endTpl = /<#-?\s*end\s*-?#>/;
+  const isHtml = textDocument.uri.endsWith('.nhtml');
+  const isMd = textDocument.uri.endsWith('.nmd');
+  const htmlOpen = /<([A-Za-z][^\s>/]*)[^>]*?(?<![\/])>/;
+  const htmlClose = /<\/(\w+)[^>]*>/;
+  const htmlSelf = /<([A-Za-z][^\s>/]*)([^>]*)\/>/;
+
   const formatted = lines.map((line) => {
-    const trimmed = line.replace(/\s+$/,'');
-    if (endRe.test(trimmed)) {
+    const rtrim = line.replace(/\s+$/, '');
+    const isTplEnd = endTpl.test(rtrim);
+    const isHtmlClose = isHtml && htmlClose.test(rtrim.trimStart());
+    if (isTplEnd || isHtmlClose) {
       level = Math.max(0, level - 1);
     }
-    const indented = (level > 0 ? ' '.repeat(level * indentSize) : '') + trimmed.trimStart();
-    if (openRe.test(trimmed) && !endRe.test(trimmed)) {
+
+    // do not indent inside code openers visually; rely only on our levels
+    const base = rtrim.trimStart();
+    const indented = (level > 0 ? ' '.repeat(level * indentSize) : '') + base;
+
+    const opensTpl = openTpl.test(rtrim) && !endTpl.test(rtrim);
+    const opensHtml = isHtml && htmlOpen.test(rtrim.trim()) && !htmlSelf.test(rtrim.trim()) && !isHtmlClose && !/^<\//.test(rtrim.trim());
+    if (opensTpl || opensHtml) {
       level += 1;
     }
     return indented;
