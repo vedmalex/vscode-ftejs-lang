@@ -59,6 +59,14 @@
           ]
         },
         {
+          "begin": "!{",
+          "beginCaptures": { "0": { "name": "punctuation.definition.template-expression.begin" } },
+          "end": "}",
+          "endCaptures": { "0": { "name": "punctuation.definition.template-expression.end" } },
+          "contentName": "meta.embedded.block.javascript",
+          "patterns": [ { "include": "source.js" } ]
+        },
+        {
           "begin": "<#[-]?",
           "beginCaptures": {
             "0": {
@@ -94,27 +102,36 @@
           "name": "comment.block.template"
         },
         {
-          "begin": "<#- block\\s+'([^']+)'\\s*:\\s*-#>",
-          "beginCaptures": {
-            "0": {
-              "name": "punctuation.definition.block.begin"
-            },
-            "1": {
-              "name": "entity.name.block"
-            }
-          },
-          "end": "<#- end\\s*-#>",
-          "endCaptures": {
-            "0": {
-              "name": "punctuation.definition.block.end"
-            }
-          },
+          "begin": "<#-\\s*block\\s+['\"`]([^'\"`]+)['\"`]\\s*:\\s*-#>",
+          "beginCaptures": { "0": { "name": "punctuation.definition.block.begin" }, "1": { "name": "entity.name.block" } },
+          "end": "<#-\\s*end\\s*-#>",
+          "endCaptures": { "0": { "name": "punctuation.definition.block.end" } },
           "name": "meta.block.template",
-          "patterns": [
-            {
-              "include": "source.js"
-            }
-          ]
+          "patterns": [ { "include": "source.js" } ]
+        },
+        {
+          "begin": "<#\\s*block\\s+['\"`]([^'\"`]+)['\"`]\\s*:\\s*#>",
+          "beginCaptures": { "0": { "name": "punctuation.definition.block.begin" }, "1": { "name": "entity.name.block" } },
+          "end": "<#\\s*end\\s*#>",
+          "endCaptures": { "0": { "name": "punctuation.definition.block.end" } },
+          "name": "meta.block.template",
+          "patterns": [ { "include": "source.js" } ]
+        },
+        {
+          "begin": "<#-\\s*slot\\s+['\"`]([^'\"`]+)['\"`]\\s*:\\s*-#>",
+          "beginCaptures": { "0": { "name": "punctuation.definition.block.begin" }, "1": { "name": "entity.name.block" } },
+          "end": "<#-\\s*end\\s*-#>",
+          "endCaptures": { "0": { "name": "punctuation.definition.block.end" } },
+          "name": "meta.slot.template",
+          "patterns": [ { "include": "source.js" } ]
+        },
+        {
+          "begin": "<#\\s*slot\\s+['\"`]([^'\"`]+)['\"`]\\s*:\\s*#>",
+          "beginCaptures": { "0": { "name": "punctuation.definition.block.begin" }, "1": { "name": "entity.name.block" } },
+          "end": "<#\\s*end\\s*#>",
+          "endCaptures": { "0": { "name": "punctuation.definition.block.end" } },
+          "name": "meta.slot.template",
+          "patterns": [ { "include": "source.js" } ]
         },
         {
           "begin": "<%#",
