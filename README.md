@@ -40,11 +40,13 @@ const html = fte`<div>
 - Update `CHANGELOG.md`.
 - Create a Git tag, CI will package and publish.
 
-### Publishing (CI)
+### Injections into other languages
 - This repo uses GitHub Actions to package and publish on tag push (e.g. `v1.2.3`).
 - Required secrets:
   - `VSCE_PAT`: VS Code Marketplace Personal Access Token (Azure DevOps). See VS Code docs.
   - Optional: `OVSX_TOKEN` for Open VSX publishing.
 
-### License
+The extension injects template delimiters into Python/Swift/Ruby/Go/PHP files to highlight `#{}`, `<# #>`, EJS tags and comments inside strings or code where applicable.
+
+### Publishing (CI)
 MIT
