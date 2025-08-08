@@ -26,6 +26,7 @@
     "vscode": "^1.96.4"
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "compile": "npm --workspace server run build && npm --workspace client run build",
     "watch": "npm --workspace server run watch & npm --workspace client run watch",
     "package": "vsce package --no-yarn",
@@ -54,8 +55,8 @@
       "properties": {
         "ftejs.parserPath": {
           "type": "string",
-          "default": "/Users/vedmalex/work/fte2/packages/fte.js-parser", 
-          "description": "Path to fte.js parser package for server"
+          "default": "",
+          "markdownDescription": "Optional. Absolute path to local fte.js-parser. If empty, server tries to resolve npm package `fte.js-parser`."
         }
       }
     },
@@ -172,5 +173,11 @@
         ]
       }
     ]
+  }
+  ,
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11"
   }
 }

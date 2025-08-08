@@ -21,16 +21,28 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// dynamic import of parser from fte2 path
-function loadParser(parserPath: string) {
+// dynamic import of parser. Try explicit path, then package resolution
+function tryRequire(id: string) {
   try {
-    const entry = path.join(parserPath, 'dist', 'index.js');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require(entry);
-    return mod;
-  } catch (e) {
+    return require(id);
+  } catch {
     return undefined;
   }
+}
+
+function loadParserAuto(parserPath?: string) {
+  if (parserPath) {
+    const distEntry = path.join(parserPath, 'dist', 'index.js');
+    const direct = tryRequire(distEntry) || tryRequire(parserPath);
+    if (direct) return direct;
+  }
+  // try npm package names
+  const resolvedDist = tryRequire('fte.js-parser/dist/index.js');
+  if (resolvedDist) return resolvedDist;
+  const resolvedMain = tryRequire('fte.js-parser');
+  if (resolvedMain) return resolvedMain;
+  return undefined;
 }
 
 const connection = createConnection(ProposedFeatures.all);
@@ -41,8 +53,9 @@ let parser: any | undefined;
 connection.onInitialize((params: InitializeParams) => {
   const options = (params.initializationOptions || {}) as { parserPath?: string };
   const parserPath = options.parserPath || '';
-  if (parserPath) {
-    parser = loadParser(parserPath);
+  parser = loadParserAuto(parserPath);
+  if (!parser) {
+    connection.console.warn('fte.js parser not found. Set "ftejs.parserPath" or add dependency "fte.js-parser".');
   }
 
   return {
