@@ -1,0 +1,53 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "FTE Template Injection (Generic)",
+  "scopeName": "fte.template.inject.generic",
+  "injectionSelector": "L:source.python, L:source.swift, L:source.ruby, L:source.go, L:source.php",
+  "patterns": [
+    {
+      "begin": "<#@\\s*",
+      "beginCaptures": { "0": { "name": "punctuation.definition.directive.begin" } },
+      "end": "\\s*#>",
+      "endCaptures": { "0": { "name": "punctuation.definition.directive.end" } },
+      "name": "meta.directive.template",
+      "patterns": [
+        { "name": "keyword.control.directive", "match": "\\w+" },
+        { "name": "string.unquoted.directive", "match": "[^\\s#>]*" }
+      ]
+    },
+    {
+      "begin": "#{",
+      "beginCaptures": { "0": { "name": "punctuation.definition.template-expression.begin" } },
+      "end": "}",
+      "endCaptures": { "0": { "name": "punctuation.definition.template-expression.end" } },
+      "contentName": "meta.embedded.block.javascript",
+      "patterns": [ { "include": "source.js" } ]
+    },
+    {
+      "begin": "<#[-]?",
+      "beginCaptures": { "0": { "name": "punctuation.definition.template-block.begin" } },
+      "end": "[-]?#>",
+      "endCaptures": { "0": { "name": "punctuation.definition.template-block.end" } },
+      "contentName": "meta.embedded.block.javascript",
+      "patterns": [ { "include": "source.js" } ]
+    },
+    {
+      "begin": "<\\*",
+      "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin" } },
+      "end": "\\*>",
+      "endCaptures": { "0": { "name": "punctuation.definition.comment.end" } },
+      "name": "comment.block.template"
+    },
+    {
+      "begin": "<#- block\\s+'([^']+)'\\s*:\\s*-#>",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.block.begin" },
+        "1": { "name": "entity.name.block" }
+      },
+      "end": "<#- end\\s*-#>",
+      "endCaptures": { "0": { "name": "punctuation.definition.block.end" } },
+      "name": "meta.block.template",
+      "patterns": [ { "include": "source.js" } ]
+    }
+  ]
+}

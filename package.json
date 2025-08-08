@@ -130,6 +130,11 @@
         "scopeName": "fte.template.inject.html",
         "path": "./syntaxes/template-inject-html.tmLanguage.json",
         "injectTo": ["text.html.basic", "text.html.markdown"]
+      },
+      {
+        "scopeName": "fte.template.inject.generic",
+        "path": "./syntaxes/template-inject-generic.tmLanguage.json",
+        "injectTo": ["source.python", "source.swift", "source.ruby", "source.go", "source.php"]
       }
     ]
   }
