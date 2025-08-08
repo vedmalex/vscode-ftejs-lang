@@ -1,13 +1,16 @@
-# Change Log
+# Changelog
 
-All notable changes to the "fte-js-lang" extension will be documented in this file.
+All notable changes to this extension will be documented in this file.
 
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
+The format is based on Keep a Changelog and this project adheres to Semantic Versioning.
 
-## 0.0.2
+## [1.1.2] - 2025-08-08
+- Align grammars across HTML, JS, TS, Markdown
+- Clarify language ids and file extensions
+- Housekeeping: docs and CI
 
-- fix: extensions
+## [1.1.1] - 2024-..-..
+- Internal tweaks
 
-## [Unreleased]
-
-- Initial release
+## [1.1.0] - 2024-..-..
+- Initial public version

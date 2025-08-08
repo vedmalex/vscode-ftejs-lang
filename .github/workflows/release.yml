@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install vsce and ovsx
+        run: |
+          npm i -g @vscode/vsce ovsx
+
+      - name: Verify manifest
+        run: |
+          node -e "const p=require('./package.json'); if(!p.publisher||!p.name||!p.version){throw new Error('Missing publisher/name/version')}"
+
+      - name: Package
+        run: |
+          vsce package --no-yarn
+
+      - name: Publish to VS Code Marketplace
+        if: env.VSCE_PAT != ''
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          vsce publish --packagePath *.vsix --pat "$VSCE_PAT" || echo 'Skip VSCE publish'
+
+      - name: Publish to Open VSX
+        if: env.OVSX_TOKEN != ''
+        env:
+          OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
+        run: |
+          ovsx publish *.vsix -p "$OVSX_TOKEN" || echo 'Skip Open VSX publish'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: '*.vsix'

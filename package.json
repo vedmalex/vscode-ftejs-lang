@@ -1,15 +1,36 @@
 {
-  "name": "fte-js-lang",
-  "publisher": "vedmalex",
-  "displayName": "fte.js-lang",
+  "name": "fte-js-template",
+  "publisher": "alex-vedmedenko",
+  "displayName": "fte.js-template",
   "repository": {
     "type": "git",
     "url": "https://github.com/vedmalex/vscode-ftejs-lang.git"
   },
   "description": "syntax highlight for fte.js templates",
-  "version": "1.1.0",
+  "license": "MIT",
+  "homepage": "https://github.com/vedmalex/vscode-ftejs-lang#readme",
+  "bugs": {
+    "url": "https://github.com/vedmalex/vscode-ftejs-lang/issues"
+  },
+  "keywords": [
+    "fte.js",
+    "template",
+    "syntax",
+    "highlighting",
+    "textmate",
+    "vscode-extension"
+  ],
+  "version": "1.1.2",
   "engines": {
-    "vscode": "^1.56.4"
+    "vscode": "^1.96.4"
+  },
+  "scripts": {
+    "package": "vsce package --no-yarn",
+    "publish:vsce": "vsce publish",
+    "publish:openvsx": "ovsx publish",
+    "release:patch": "npm version patch && git push --follow-tags",
+    "release:minor": "npm version minor && git push --follow-tags",
+    "release:major": "npm version major && git push --follow-tags"
   },
   "categories": [
     "Programming Languages"

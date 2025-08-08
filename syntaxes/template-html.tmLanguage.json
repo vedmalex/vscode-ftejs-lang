@@ -14,6 +14,31 @@
     "template-expressions": {
       "patterns": [
         {
+          "begin": "<#@\\s*",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.directive.begin"
+            }
+          },
+          "end": "\\s*#>",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.directive.end"
+            }
+          },
+          "name": "meta.directive.template",
+          "patterns": [
+            {
+              "name": "keyword.control.directive",
+              "match": "\\w+"
+            },
+            {
+              "name": "string.unquoted.directive",
+              "match": "[^\\s#>]*"
+            }
+          ]
+        },
+        {
           "begin": "#{",
           "beginCaptures": {
             "0": {
@@ -34,19 +59,57 @@
           ]
         },
         {
-          "begin": "<#",
+          "begin": "<#[-@]?",
           "beginCaptures": {
             "0": {
               "name": "punctuation.definition.template-block.begin"
             }
           },
-          "end": "#>",
+          "end": "[-]?#>",
           "endCaptures": {
             "0": {
               "name": "punctuation.definition.template-block.end"
             }
           },
           "contentName": "meta.embedded.block.javascript",
+          "patterns": [
+            {
+              "include": "source.js"
+            }
+          ]
+        },
+        {
+          "begin": "<\\*",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.begin"
+            }
+          },
+          "end": "\\*>",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.end"
+            }
+          },
+          "name": "comment.block.template"
+        },
+        {
+          "begin": "<#- block\\s+'([^']+)'\\s*:\\s*-#>",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.block.begin"
+            },
+            "1": {
+              "name": "entity.name.block"
+            }
+          },
+          "end": "<#- end\\s*-#>",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.block.end"
+            }
+          },
+          "name": "meta.block.template",
           "patterns": [
             {
               "include": "source.js"

@@ -3,3 +3,7 @@
 .old/**
 .gitignore
 vsc-extension-quickstart.md
+node_modules/**
+todo.md
+.github/**
+.DS_Store

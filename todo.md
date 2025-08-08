@@ -12,3 +12,5 @@ https://github.com/pushqrdx/vscode-inline-html#readme
 ```js
 fte`<тут шаблон> `
 ```
+
+vsce publish
