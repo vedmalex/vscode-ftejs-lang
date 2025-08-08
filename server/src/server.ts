@@ -201,6 +201,35 @@ function computeOpenBlocks(text: string, upTo?: number) {
   return stack;
 }
 
+function stripStringsAndComments(line: string): string {
+  // remove // comments
+  let res = line.replace(/\/\/.*$/, '');
+  // remove single/double/backtick quoted strings (no multiline)
+  res = res.replace(/'(?:\\.|[^'\\])*'/g, "'");
+  res = res.replace(/"(?:\\.|[^"\\])*"/g, '"');
+  res = res.replace(/`(?:\\.|[^`\\])*`/g, '`');
+  return res;
+}
+
+function isTemplateTagLine(line: string): boolean {
+  return /<#|#>|\#\{|!\{|<%|%>/.test(line);
+}
+
+function computeJsCodeDelta(line: string): { dedentFirst: number; delta: number } {
+  const trimmed = line.trimStart();
+  // case/default as outdented one level
+  let dedentFirst = /^(}|\)|\]|case\b|default\b)/.test(trimmed) ? 1 : 0;
+  if (/^default\b/.test(trimmed)) {
+    // keep same level for default
+    dedentFirst = 1;
+  }
+  const safe = stripStringsAndComments(line);
+  const opens = (safe.match(/[\{\(\[]/g) || []).length;
+  const closes = (safe.match(/[\}\)\]]/g) || []).length;
+  const delta = opens - closes;
+  return { dedentFirst, delta };
+}
+
 connection.onCompletion(({ textDocument, position }) => {
   const doc = documents.get(textDocument.uri);
   if (!doc) return [];
@@ -380,21 +409,37 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
 
   const formatted = lines.map((line) => {
     const rtrim = line.replace(/\s+$/, '');
+    const raw = rtrim; // preserve for language detection
     const isTplEnd = endTpl.test(rtrim);
     const isHtmlClose = isHtml && htmlClose.test(rtrim.trimStart());
-    if (isTplEnd || isHtmlClose) {
+
+    // detect if this is a JS/TS code line rather than template/meta
+    const maybeCode = !isTemplateTagLine(raw);
+    let jsDedentFirst = 0;
+    let jsDelta = 0;
+    if (maybeCode) {
+      const code = raw;
+      const d = computeJsCodeDelta(code);
+      jsDedentFirst = d.dedentFirst;
+      jsDelta = d.delta;
+    }
+
+    // first dedent on template end, html close, or js/ts closing tokens
+    if (isTplEnd || isHtmlClose || jsDedentFirst) {
       level = Math.max(0, level - 1);
     }
 
-    // do not indent inside code openers visually; rely only on our levels
     const base = rtrim.trimStart();
     const indented = (level > 0 ? ' '.repeat(level * indentSize) : '') + base;
 
     const opensTpl = openTpl.test(rtrim) && !endTpl.test(rtrim);
     const opensHtml = isHtml && htmlOpen.test(rtrim.trim()) && !htmlSelf.test(rtrim.trim()) && !isHtmlClose && !/^<\//.test(rtrim.trim());
-    if (opensTpl || opensHtml) {
-      level += 1;
-    }
+
+    let nextLevelDelta = 0;
+    if (opensTpl || opensHtml) nextLevelDelta += 1;
+    if (maybeCode) nextLevelDelta += jsDelta;
+    if (nextLevelDelta > 0) level += nextLevelDelta;
+
     return indented;
   }).join('\n');
   const fullRange = Range.create(Position.create(0,0), doc.positionAt(doc.getText().length));
