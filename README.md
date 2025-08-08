@@ -4,7 +4,7 @@ Syntax highlighting for fte.js templates in HTML, JS/TS and Markdown files.
 
 ### Features
 - **Languages**: `template-html` (`.nhtml`), `template-js` (`.njs`), `template-typescript` (`.nts`), `template-markdown` (`.nmd`) + inline templates in JS/TS via tagged template `fte`
-- **Embedded JS blocks**: `#{ ... }`, `<# ... #>` with trim modifiers, directives `<#@ ... #>`
+- **Embedded JS blocks**: `#{ ... }`, `<# ... #>` with trim modifiers, directives `<#@ ... #>`, and EJS-style tags `<% %>`, `<%= %>`, `<%- %>`, `<%# %>` (supports `-%>`/`_%>` trims)
 - **Template comments**: `<* ... *>`
 - Bracket/auto-close pairs for common template delimiters
 

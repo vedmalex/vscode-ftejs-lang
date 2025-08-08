@@ -115,6 +115,45 @@
               "include": "source.js"
             }
           ]
+        },
+        {
+          "begin": "<%#",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin" } },
+          "end": "[-_]?%>",
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.end" } },
+          "name": "comment.block.ejs"
+        },
+        {
+          "begin": "<%=",
+          "beginCaptures": { "0": { "name": "punctuation.section.ejs.output.begin" } },
+          "end": "[-_]?%>",
+          "endCaptures": { "0": { "name": "punctuation.section.ejs.output.end" } },
+          "contentName": "meta.embedded.block.javascript",
+          "patterns": [ { "include": "source.js" } ]
+        },
+        {
+          "begin": "<%-",
+          "beginCaptures": { "0": { "name": "punctuation.section.ejs.unescaped.begin" } },
+          "end": "[-_]?%>",
+          "endCaptures": { "0": { "name": "punctuation.section.ejs.unescaped.end" } },
+          "contentName": "meta.embedded.block.javascript",
+          "patterns": [ { "include": "source.js" } ]
+        },
+        {
+          "begin": "<%_",
+          "beginCaptures": { "0": { "name": "punctuation.section.ejs.trimmed.begin" } },
+          "end": "[-_]?%>",
+          "endCaptures": { "0": { "name": "punctuation.section.ejs.trimmed.end" } },
+          "contentName": "meta.embedded.block.javascript",
+          "patterns": [ { "include": "source.js" } ]
+        },
+        {
+          "begin": "<%(?![=#\-_])",
+          "beginCaptures": { "0": { "name": "punctuation.section.ejs.begin" } },
+          "end": "[-_]?%>",
+          "endCaptures": { "0": { "name": "punctuation.section.ejs.end" } },
+          "contentName": "meta.embedded.block.javascript",
+          "patterns": [ { "include": "source.js" } ]
         }
       ]
     }
