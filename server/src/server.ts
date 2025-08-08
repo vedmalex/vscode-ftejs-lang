@@ -56,6 +56,7 @@ connection.onInitialize((params: InitializeParams) => {
       documentFormattingProvider: true,
       signatureHelpProvider: { triggerCharacters: ['(', '"', "'"] },
       documentOnTypeFormattingProvider: { firstTriggerCharacter: '>', moreTriggerCharacter: ['\n'] },
+      codeActionProvider: { resolveProvider: false },
     },
   };
 });
@@ -182,6 +183,22 @@ function computeDiagnostics(doc: TextDocument): Diagnostic[] {
     }
   }
   return diags;
+}
+
+function computeOpenBlocks(text: string, upTo?: number) {
+  const openRe = /<#(-?)\s*(block|slot)\s+(["'`])([^"'`]+)\3\s*:\s*(-?)#>/g;
+  const endRe = /<#-?\s*end\s*-?#>/g;
+  const limit = upTo ?? text.length;
+  const stack: { trimmedOpen: boolean; trimmedClose: boolean; name: string; index: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = openRe.exec(text)) && m.index < limit) {
+    stack.push({ trimmedOpen: m[1] === '-', trimmedClose: m[5] === '-', name: m[4], index: m.index });
+  }
+  let e: RegExpExecArray | null;
+  while ((e = endRe.exec(text)) && e.index < limit) {
+    if (stack.length) stack.pop();
+  }
+  return stack;
 }
 
 connection.onCompletion(({ textDocument, position }) => {
@@ -382,6 +399,75 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
   }).join('\n');
   const fullRange = Range.create(Position.create(0,0), doc.positionAt(doc.getText().length));
   return [TextEdit.replace(fullRange, formatted.endsWith('\n') ? formatted : formatted + '\n')];
+});
+
+connection.onDocumentOnTypeFormatting(({ ch, options, position, textDocument }) => {
+  const doc = documents.get(textDocument.uri);
+  if (!doc) return [];
+  const indentSize = options.tabSize || 2;
+  const text = doc.getText();
+  const offset = doc.offsetAt(position);
+  // Only react when '>' or newline typed right after opener
+  const before = text.slice(0, offset);
+  const lastOpenStack = computeOpenBlocks(text, offset);
+  if (lastOpenStack.length === 0) return [];
+  const last = lastOpenStack[lastOpenStack.length - 1];
+  // If next non-space after cursor is already an end tag - do nothing
+  const after = text.slice(offset);
+  if (after.match(/^\s*<#-?\s*end\s*-?#>/)) return [];
+  // Build end tag based on opener trim markers
+  const openTrim = last.trimmedOpen ? '-' : '';
+  const closeTrim = last.trimmedClose ? '-' : '';
+  const endTag = `<#${openTrim} end ${closeTrim}#>`;
+  const currentLineStart = before.lastIndexOf('\n') + 1;
+  const currentLineIndent = before.slice(currentLineStart).match(/^\s*/)?.[0]?.length ?? 0;
+  const indent = ' '.repeat(Math.max(0, currentLineIndent));
+  const nextIndent = ' '.repeat(Math.max(0, currentLineIndent + indentSize));
+
+  // Insert a newline, keep cursor line, add end on new line below
+  // We return edits that re-indent current line (if needed) and append the end tag
+  const edits: TextEdit[] = [];
+  if (ch === '>') {
+    // user just closed opener; insert newline + end below
+    edits.push(TextEdit.insert(position, `\n${nextIndent}`));
+    const insertPos = { line: position.line + 1, character: 0 };
+    edits.push(TextEdit.insert(insertPos, `${indent}${endTag}`));
+  } else if (ch === '\n') {
+    edits.push(TextEdit.insert(position, `${nextIndent}`));
+    const insertPos = position;
+    edits.push(TextEdit.insert(insertPos, `\n${indent}${endTag}`));
+  }
+  return edits;
+});
+
+connection.onCodeAction(({ textDocument, range, context }) => {
+  const doc = documents.get(textDocument.uri);
+  if (!doc) return [];
+  const text = doc.getText();
+  const diagnostics = context.diagnostics || [];
+  const actions: any[] = [];
+  // Quick fix for unmatched end
+  const hasUnmatchedEnd = diagnostics.some(d => /Unmatched end/.test(d.message));
+  if (hasUnmatchedEnd) {
+    actions.push({
+      title: 'Remove unmatched end',
+      kind: 'quickfix',
+      edit: { changes: { [textDocument.uri]: [TextEdit.del(range)] } }
+    });
+  }
+  // Action: Close all open blocks at cursor
+  const offset = doc.offsetAt(range.end);
+  const stack = computeOpenBlocks(text, offset);
+  if (stack.length) {
+    const indent = ' '.repeat((range.start.character));
+    const tags = stack.map(s => `<#${s.trimmedOpen ? '-' : ''} end ${s.trimmedClose ? '-' : ''}#>`).join(`\n${indent}`);
+    actions.push({
+      title: 'Close open template blocks here',
+      kind: 'quickfix',
+      edit: { changes: { [textDocument.uri]: [TextEdit.insert(range.end, `\n${indent}${tags}`)] } }
+    });
+  }
+  return actions;
 });
 
 // publish diagnostics on open/change
