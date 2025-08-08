@@ -6,7 +6,7 @@
     "type": "git",
     "url": "https://github.com/vedmalex/vscode-ftejs-lang.git"
   },
-  "description": "syntax highlight for fte.js templates",
+  "description": "fte.js templates: syntax highlight + language server",
   "license": "MIT",
   "homepage": "https://github.com/vedmalex/vscode-ftejs-lang#readme",
   "bugs": {
@@ -21,10 +21,13 @@
     "vscode-extension"
   ],
   "version": "1.2.0",
+  "workspaces": ["client", "server"],
   "engines": {
     "vscode": "^1.96.4"
   },
   "scripts": {
+    "compile": "npm --workspace server run build && npm --workspace client run build",
+    "watch": "npm --workspace server run watch & npm --workspace client run watch",
     "package": "vsce package --no-yarn",
     "publish:vsce": "vsce publish",
     "publish:openvsx": "ovsx publish",
@@ -32,10 +35,30 @@
     "release:minor": "npm version minor && git push --follow-tags",
     "release:major": "npm version major && git push --follow-tags"
   },
+  "main": "./client/out/extension.js",
+  "activationEvents": [
+    "onLanguage:template-js",
+    "onLanguage:template-html",
+    "onLanguage:template-typescript",
+    "onLanguage:template-markdown"
+  ],
   "categories": [
     "Programming Languages"
   ],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [ { "id": "ftejs", "title": "fte.js", "icon": "" } ]
+    },
+    "configuration": {
+      "title": "fte.js",
+      "properties": {
+        "ftejs.parserPath": {
+          "type": "string",
+          "default": "/Users/vedmalex/work/fte2/packages/fte.js-parser", 
+          "description": "Path to fte.js parser package for server"
+        }
+      }
+    },
     "languages": [
       {
         "id": "template-js",

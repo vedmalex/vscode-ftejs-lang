@@ -1,0 +1,18 @@
+{
+  "name": "ftejs-server",
+  "private": true,
+  "version": "0.0.1",
+  "main": "out/server.js",
+  "scripts": {
+    "build": "tsc -b",
+    "watch": "tsc -w"
+  },
+  "dependencies": {
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "@types/node": "^20.12.8"
+  }
+}
