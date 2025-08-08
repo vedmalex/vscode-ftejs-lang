@@ -1,0 +1,33 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "FTE Template Inline",
+  "scopeName": "text.html.template.inline",
+  "injectionSelector": "L:source.js, L:source.ts",
+  "patterns": [
+    {
+      "name": "meta.embedded.fte.template",
+      "begin": "(\\bfte)\\s*`",
+      "beginCaptures": {
+        "1": { "name": "entity.name.function.tagged-template" }
+      },
+      "end": "`",
+      "applyEndPatternLast": true,
+      "patterns": [
+        {
+          "begin": "\\\\`",
+          "end": "\\\\`",
+          "name": "constant.character.escape.backtick"
+        },
+        {
+          "begin": "\\$\\{",
+          "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin" } },
+          "end": "}",
+          "endCaptures": { "0": { "name": "punctuation.section.interpolation.end" } },
+          "contentName": "meta.embedded.block.javascript",
+          "patterns": [ { "include": "source.js" } ]
+        },
+        { "include": "text.html.template" }
+      ]
+    }
+  ]
+}

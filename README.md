@@ -3,7 +3,7 @@
 Syntax highlighting for fte.js templates in HTML, JS/TS and Markdown files.
 
 ### Features
-- **Languages**: `template-html` (`.nhtml`), `template-js` (`.njs`), `template-typescript` (`.nts`), `template-markdown` (`.nmd`)
+- **Languages**: `template-html` (`.nhtml`), `template-js` (`.njs`), `template-typescript` (`.nts`), `template-markdown` (`.nmd`) + inline templates in JS/TS via tagged template `fte`
 - **Embedded JS blocks**: `#{ ... }`, `<# ... #>` with trim modifiers, directives `<#@ ... #>`
 - **Template comments**: `<* ... *>`
 - Bracket/auto-close pairs for common template delimiters
@@ -15,8 +15,16 @@ Syntax highlighting for fte.js templates in HTML, JS/TS and Markdown files.
   - `vsce package`
   - In VS Code: Extensions view → … → Install from VSIX
 
-### File associations
+### File associations & inline usage
 - Create files with extensions: `.nhtml`, `.njs`, `.nts`, `.nmd`
+- Inline in JS/TS:
+```ts
+const html = fte`<div>
+  <# if (cond) { #>
+    #{ value }
+  <# } #>
+</div>`
+```
 
 ### Known limitations
 - Only syntax highlighting + brackets. No IntelliSense or formatting.

@@ -117,6 +117,19 @@
           "meta.embedded.block.markdown": "markdown",
           "meta.embedded.block.javascript": "javascript"
         }
+      },
+      {
+        "scopeName": "text.html.template.inline",
+        "path": "./syntaxes/template-inline.tmLanguage.json",
+        "injectTo": ["source.js", "source.ts"],
+        "embeddedLanguages": {
+          "meta.embedded.block.javascript": "javascript"
+        }
+      },
+      {
+        "scopeName": "fte.template.inject.html",
+        "path": "./syntaxes/template-inject-html.tmLanguage.json",
+        "injectTo": ["text.html.basic", "text.html.markdown"]
       }
     ]
   }
