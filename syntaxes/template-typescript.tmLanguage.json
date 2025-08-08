@@ -20,7 +20,7 @@
               "name": "punctuation.definition.directive.begin"
             }
           },
-          "end": "\\s*#>",
+          "end": "[-]?\\s*#>",
           "endCaptures": {
             "0": {
               "name": "punctuation.definition.directive.end"
