@@ -20,6 +20,7 @@ import {
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as prettier from 'prettier';
 
 // dynamic import of parser. Try explicit path, then package resolution
 function tryRequire(id: string) {
@@ -410,53 +411,108 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
   if (!doc) return [];
   const indentSize = options.tabSize || 2;
   const text = doc.getText();
-  const lines = text.split(/\r?\n/);
-  let level = 0;
+  // Use parser to split into items
+  let ast: any;
+  try {
+    ast = (parser?.Parser ? parser.Parser.parse(text, { indent: indentSize }) : undefined);
+  } catch {
+    ast = undefined;
+  }
+  // Fallback to previous simple formatter if parse failed or parser missing
+  if (!ast) {
+    const lines = text.split(/\r?\n/);
+    let level = 0;
+    const openTpl = /<#-?\s*(block|slot)\s+(["'`])([^"'`]+?)\1\s*:\s*-?#>/;
+    const endTpl = /<#-?\s*end\s*-?#>/;
+    const isHtml = textDocument.uri.endsWith('.nhtml');
+    const htmlOpen = /<([A-Za-z][^\s>/]*)[^>]*?(?<![\/])>/;
+    const htmlClose = /<\/(\w+)[^>]*>/;
+    const htmlSelf = /<([A-Za-z][^\s>/]*)([^>]*)\/>/;
+    const formattedFallback = lines.map((line) => {
+      const rtrim = line.replace(/\s+$/, '');
+      const raw = rtrim;
+      const isTplEnd = endTpl.test(rtrim);
+      const isHtmlClose = isHtml && htmlClose.test(rtrim.trimStart());
+      const maybeCode = !isTemplateTagLine(raw);
+      let jsDedentFirst = 0;
+      let jsDelta = 0;
+      if (maybeCode) {
+        const d = computeJsCodeDelta(raw);
+        jsDedentFirst = d.dedentFirst;
+        jsDelta = d.delta;
+      }
+      if (isTplEnd || isHtmlClose || jsDedentFirst) level = Math.max(0, level - 1);
+      const base = rtrim.trimStart();
+      const indented = (level > 0 ? ' '.repeat(level * indentSize) : '') + base;
+      const opensTpl = openTpl.test(rtrim) && !endTpl.test(rtrim);
+      const opensHtml = isHtml && htmlOpen.test(rtrim.trim()) && !htmlSelf.test(rtrim.trim()) && !isHtmlClose && !/^<\//.test(rtrim.trim());
+      let delta = 0;
+      if (opensTpl || opensHtml) delta += 1;
+      if (maybeCode) delta += jsDelta;
+      if (delta > 0) level += delta;
+      return indented;
+    }).join('\n');
+    const fullRange = Range.create(Position.create(0,0), doc.positionAt(doc.getText().length));
+    return [TextEdit.replace(fullRange, formattedFallback.endsWith('\n') ? formattedFallback : formattedFallback + '\n')];
+  }
+
+  const ext = (textDocument.uri.split('.').pop() || '').toLowerCase();
+  const defaultLang = ext === 'nhtml' ? 'html' : ext === 'nmd' ? 'markdown' : ext === 'nts' ? 'typescript' : 'babel';
+  const getTextLang = () => defaultLang;
+
+  // Build from AST with language-aware formatting for text chunks
+  const items: any[] = ast.main || [];
+  let result: string[] = [];
+  let templateIndentLevel = 0;
   const openTpl = /<#-?\s*(block|slot)\s+(["'`])([^"'`]+?)\1\s*:\s*-?#>/;
   const endTpl = /<#-?\s*end\s*-?#>/;
-  const isHtml = textDocument.uri.endsWith('.nhtml');
-  const isMd = textDocument.uri.endsWith('.nmd');
-  const htmlOpen = /<([A-Za-z][^\s>/]*)[^>]*?(?<![\/])>/;
-  const htmlClose = /<\/(\w+)[^>]*>/;
-  const htmlSelf = /<([A-Za-z][^\s>/]*)([^>]*)\/>/;
-
-  const formatted = lines.map((line) => {
-    const rtrim = line.replace(/\s+$/, '');
-    const raw = rtrim; // preserve for language detection
-    const isTplEnd = endTpl.test(rtrim);
-    const isHtmlClose = isHtml && htmlClose.test(rtrim.trimStart());
-
-    // detect if this is a JS/TS code line rather than template/meta
-    const maybeCode = !isTemplateTagLine(raw);
-    let jsDedentFirst = 0;
-    let jsDelta = 0;
-    if (maybeCode) {
-      const code = raw;
-      const d = computeJsCodeDelta(code);
-      jsDedentFirst = d.dedentFirst;
-      jsDelta = d.delta;
+  const appendWithIndent = (chunk: string) => {
+    const lines = chunk.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (i < lines.length - 1 || line.length > 0) {
+        result.push((templateIndentLevel > 0 ? ' '.repeat(templateIndentLevel * indentSize) : '') + line);
+      }
     }
-
-    // first dedent on template end, html close, or js/ts closing tokens
-    if (isTplEnd || isHtmlClose || jsDedentFirst) {
-      level = Math.max(0, level - 1);
+  };
+  let textChunk: string[] = [];
+  const flushTextChunk = () => {
+    if (textChunk.length === 0) return;
+    const rawText = textChunk.join('');
+    let formatted: string = rawText;
+    try {
+      const parserName = getTextLang();
+      const pretty: string = prettier.format(rawText, { parser: parserName as any, tabWidth: indentSize }) as unknown as string;
+      formatted = (pretty || rawText).replace(/[\s\u00A0]+$/,'');
+    } catch {
+      // fallback to rawText
     }
+    appendWithIndent(formatted);
+    textChunk = [];
+  };
 
-    const base = rtrim.trimStart();
-    const indented = (level > 0 ? ' '.repeat(level * indentSize) : '') + base;
-
-    const opensTpl = openTpl.test(rtrim) && !endTpl.test(rtrim);
-    const opensHtml = isHtml && htmlOpen.test(rtrim.trim()) && !htmlSelf.test(rtrim.trim()) && !isHtmlClose && !/^<\//.test(rtrim.trim());
-
-    let nextLevelDelta = 0;
-    if (opensTpl || opensHtml) nextLevelDelta += 1;
-    if (maybeCode) nextLevelDelta += jsDelta;
-    if (nextLevelDelta > 0) level += nextLevelDelta;
-
-    return indented;
-  }).join('\n');
+  for (const it of items) {
+    const seg = it as { type: string; start: string; end: string; content: string };
+    if (seg.type === 'text') {
+      textChunk.push(seg.content);
+      // Lookahead not needed, will flush when non-text encountered
+    } else {
+      flushTextChunk();
+      const raw = (seg.start || '') + (seg.content || '') + (seg.end || '');
+      const rtrim = raw.replace(/\s+$/, '');
+      const isTplEnd = endTpl.test(rtrim);
+      if (isTplEnd) {
+        templateIndentLevel = Math.max(0, templateIndentLevel - 1);
+      }
+      appendWithIndent(raw.trimStart());
+      const opensTpl = openTpl.test(rtrim) && !endTpl.test(rtrim);
+      if (opensTpl) templateIndentLevel += 1;
+    }
+  }
+  flushTextChunk();
+  const finalText = result.join('\n');
   const fullRange = Range.create(Position.create(0,0), doc.positionAt(doc.getText().length));
-  return [TextEdit.replace(fullRange, formatted.endsWith('\n') ? formatted : formatted + '\n')];
+  return [TextEdit.replace(fullRange, finalText.endsWith('\n') ? finalText : finalText + '\n')];
 });
 
 connection.onDocumentOnTypeFormatting(({ ch, options, position, textDocument }) => {
