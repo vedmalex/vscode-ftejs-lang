@@ -8,6 +8,8 @@ Syntax highlighting for fte.js templates in HTML, JS/TS and Markdown files.
 - **Template comments**: `<* ... *>`
 - Bracket/auto-close pairs for common template delimiters
 
+> For AI agents: see `agents.md` for a concise guide on how to author fte.js templates programmatically.
+
 ### Install
 - From VS Code Marketplace (after publish)
 - Or manually build and install a `.vsix`:
@@ -26,9 +28,10 @@ const html = fte`<div>
 </div>`
 ```
 
-### Known limitations
-- Only syntax highlighting + brackets. No IntelliSense or formatting.
-- Embedded JavaScript is tokenized as JS/TS; template-specific logic beyond delimiters isn't analyzed.
+### LSP capabilities
+- Completions for directives, `content`/`partial`, snippets for `block/slot` with auto `end`
+- Hover, diagnostics (parse/structure/directives), go-to-definition/references for blocks
+- Formatting: language-aware (Prettier for text, JS/TS rules for template code), on-type end insertion
 
 ### Development
 - Press F5 to launch VS Code Extension Host.
