@@ -58,6 +58,21 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Optional. Absolute path to local fte.js-parser. If empty, server tries to resolve npm package `fte.js-parser`."
+        },
+        "ftejs.format.textFormatter": {
+          "type": "boolean",
+          "default": true,
+          "description": "Format non-template text segments using Prettier (html/markdown/js/ts)"
+        },
+        "ftejs.format.keepBlankLines": {
+          "type": "number",
+          "default": 1,
+          "description": "Maximum consecutive blank lines to keep in formatted output (use -1 to disable)"
+        },
+        "ftejs.docs.usagePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to USAGE.md providing function/directive documentation for hovers"
         }
       }
     },
