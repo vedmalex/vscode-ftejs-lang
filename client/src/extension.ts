@@ -97,6 +97,22 @@ export async function activate(context: vscode.ExtensionContext) {
       const editor = vscode.window.activeTextEditor; if (!editor) return;
       const name = await vscode.window.showInputBox({ prompt: 'Partial name', value: 'extracted-partial' }); if (!name) return;
       editor.insertSnippet(new vscode.SnippetString(`#{partial(context, '${name}')}`), new vscode.Range(payload.range.start, payload.range.end));
+    }),
+    // Generators
+    vscode.commands.registerCommand('ftejs.generator.nhtmlPage', async () => {
+      const editor = vscode.window.activeTextEditor; if (!editor) return;
+      const title = await vscode.window.showInputBox({ prompt: 'Page title', value: 'Title' }); if (title === undefined) return;
+      const tpl = `<#@ context 'data' #>\n<!doctype html>\n<html>\n  <head>\n    <title>#{ data.title || '${title}' }</title>\n  </head>\n  <body>\n    <#- if (data.items?.length) { -#>\n      <ul>\n        <#- for (const it of data.items) { -#>\n          <li>!{ it }</li>\n        <#- } -#>\n      </ul>\n    <#- } else { -#>\n      <p>No items</p>\n    <#- } -#>\n  </body>\n</html>\n`;
+      insert(tpl);
+    }),
+    vscode.commands.registerCommand('ftejs.generator.ntsClass', async () => {
+      const editor = vscode.window.activeTextEditor; if (!editor) return;
+      const className = await vscode.window.showInputBox({ prompt: 'Class name', value: 'MyClass' }); if (!className) return;
+      const fields = await vscode.window.showInputBox({ prompt: 'Fields (comma separated name:type)', value: 'id:number,name:string' });
+      const parsed = (fields || '').split(',').map(s => s.trim()).filter(Boolean).map(s => s.split(':'));
+      const body = parsed.map(([n,t]) => `  public ${n}: ${t};`).join('\n');
+      const tpl = `<#@ context 'm' #>\nexport class ${className} {\n${body}\n}\n`;
+      insert(tpl);
     })
   );
 }
