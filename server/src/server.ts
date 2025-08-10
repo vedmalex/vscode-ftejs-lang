@@ -674,6 +674,7 @@ connection.onReferences(({ textDocument, position }) => {
   if (!doc) return [];
   const text = doc.getText();
   const offset = doc.offsetAt(position);
+  const around = text.slice(Math.max(0, offset - 100), Math.min(text.length, offset + 100));
   // Determine selected block name
   const openRe = /<#-?\s*(block|slot)\s+(["'`])([^"'`]+?)\1\s*:\s*-?#>/g;
   let selected: string | undefined;
@@ -724,6 +725,31 @@ connection.onReferences(({ textDocument, position }) => {
       const start = posFromOffset(p, mu.index);
       const end = posFromOffset(p, mu.index + mu[0].length);
       res.push(Location.create(uri, Range.create(start, end)));
+    }
+  }
+  // Partial references if cursor is within partial(..., 'name') argument
+  const mp = around.match(/partial\(\s*[^,]+,\s*(["'`])([^"'`]+)\1/);
+  if (mp) {
+    const key = mp[2].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const prx = new RegExp(String.raw`partial\(\s*[^,]+,\s*(["'\`])${key}\1`, 'g');
+    // current file
+    let mu: RegExpExecArray | null;
+    while ((mu = prx.exec(text))) {
+      const start = doc.positionAt(mu.index);
+      const end = doc.positionAt(mu.index + mu[0].length);
+      res.push(Location.create(textDocument.uri, Range.create(start, end)));
+    }
+    // other files
+    for (const [uri, info] of fileIndex) {
+      if (uri === textDocument.uri) continue;
+      const p = info.path ? fs.readFileSync(info.path, 'utf8') : '';
+      if (!p) continue;
+      prx.lastIndex = 0;
+      while ((mu = prx.exec(p))) {
+        const start = posFromOffset(p, mu.index);
+        const end = posFromOffset(p, mu.index + mu[0].length);
+        res.push(Location.create(uri, Range.create(start, end)));
+      }
     }
   }
   return res;
