@@ -928,6 +928,40 @@ connection.onCodeAction(({ textDocument, range, context }) => {
       edit: { changes: { [textDocument.uri]: [TextEdit.insert(range.end, `\n${indent}${tags}`)] } }
     });
   }
+  // Wrap selection into template block/code
+  const selectionText = text.slice(doc.offsetAt(range.start), doc.offsetAt(range.end));
+  if (selectionText && selectionText.length > 0) {
+    actions.push({
+      title: 'Wrap with <#- ... -#>',
+      kind: 'refactor.rewrite',
+      edit: { changes: { [textDocument.uri]: [TextEdit.replace(range, `<#- ${selectionText} -#>`)] } }
+    });
+    actions.push({
+      title: "Wrap with <# ... #>",
+      kind: 'refactor.rewrite',
+      edit: { changes: { [textDocument.uri]: [TextEdit.replace(range, `<# ${selectionText} #>`)] } }
+    });
+  }
+  // Quick fix: create missing block for Unknown block name diagnostics
+  for (const d of diagnostics) {
+    const m = d.message.match(/^Unknown block name: (.+)$/);
+    if (m) {
+      const name = m[1];
+      const insertAt = Position.create(0, 0);
+      const scaffold = `<# block '${name}' : #>\n<# end #>\n`;
+      actions.push({
+        title: `Create block '${name}' at file start`,
+        kind: 'quickfix',
+        edit: { changes: { [textDocument.uri]: [TextEdit.insert(insertAt, scaffold)] } }
+      });
+      const curInsert = range.start;
+      actions.push({
+        title: `Insert block '${name}' here`,
+        kind: 'quickfix',
+        edit: { changes: { [textDocument.uri]: [TextEdit.insert(curInsert, scaffold)] } }
+      });
+    }
+  }
   return actions;
 });
 
