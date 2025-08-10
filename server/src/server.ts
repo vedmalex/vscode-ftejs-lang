@@ -56,6 +56,7 @@ let usageDocs: { functions: Record<string, string>; directives: Record<string, s
 let usageWatchers: Array<fs.FSWatcher> = [];
 let serverSettings: { format?: { textFormatter?: boolean; keepBlankLines?: number } } = { format: { textFormatter: true, keepBlankLines: 1 } };
 let workspaceRoots: string[] = [];
+const prettierConfigCache: Record<string, any> = {};
 
 function loadUsageDocsFrom(pathCandidates: string[]) {
   for (const p of pathCandidates) {
@@ -642,6 +643,41 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
   const ext = (textDocument.uri.split('.').pop() || '').toLowerCase();
   const defaultLang = ext === 'nhtml' ? 'html' : ext === 'nmd' ? 'markdown' : ext === 'nts' ? 'typescript' : 'babel';
   const getTextLang = () => defaultLang;
+  const filePath = textDocument.uri.startsWith('file:') ? url.fileURLToPath(textDocument.uri) : undefined;
+  const getPrettierOpts = () => {
+    let base: any = { parser: getTextLang(), tabWidth: indentSize };
+    if (serverSettings?.format?.textFormatter === false) {
+      return null;
+    }
+    try {
+      const key = filePath || 'default';
+      if (prettierConfigCache[key]) return { ...prettierConfigCache[key], ...base };
+      const anyPrettier: any = prettier as any;
+      const resolveSync = anyPrettier.resolveConfigSync;
+      const cfg = resolveSync && filePath ? resolveSync(filePath) : null;
+      prettierConfigCache[key] = cfg || {};
+      return { ...(cfg || {}), ...base };
+    } catch {
+      return base;
+    }
+  };
+  const limitBlankLines = (s: string) => {
+    const limit = serverSettings?.format?.keepBlankLines ?? 1;
+    if (limit < 0) return s;
+    const lines = s.split(/\r?\n/);
+    let blank = 0;
+    const out: string[] = [];
+    for (const ln of lines) {
+      if (ln.trim().length === 0) {
+        blank += 1;
+        if (blank <= limit) out.push(ln);
+      } else {
+        blank = 0;
+        out.push(ln);
+      }
+    }
+    return out.join('\n');
+  };
 
   // Build from AST with language-aware formatting for text chunks
   const items: any[] = ast.main || [];
@@ -664,11 +700,14 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
     const rawText = textChunk.join('');
     let formatted: string = rawText;
     try {
-      const parserName = getTextLang();
-      const pretty: string = prettier.format(rawText, { parser: parserName as any, tabWidth: indentSize }) as unknown as string;
-      formatted = (pretty || rawText).replace(/[\s\u00A0]+$/,'');
+      const pOpts = getPrettierOpts();
+      if (pOpts) {
+        const pretty: string = prettier.format(rawText, pOpts) as unknown as string;
+        formatted = (pretty || rawText).replace(/[\s\u00A0]+$/,'');
+        formatted = limitBlankLines(formatted);
+      }
     } catch {
-      // fallback to rawText
+      // fallback
     }
     appendWithIndent(formatted);
     textChunk = [];
