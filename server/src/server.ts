@@ -592,7 +592,7 @@ connection.onDefinition(({ textDocument, position }) => {
   const mp = around.match(/partial\(\s*[^,]+,\s*(["'`])([^"'`]+)\1/);
   if (mp) {
     const key = mp[2];
-    // try resolve alias from requireAs directives in this file
+    // resolve alias/path
     const aliasMap: Record<string, string> = {};
     const dirRe = /<#@\s*requireAs\s*\(([^)]*)\)\s*#>/g;
     let d: RegExpExecArray | null;
@@ -600,22 +600,28 @@ connection.onDefinition(({ textDocument, position }) => {
       const params = d[1].split(',').map((s) => s.trim().replace(/^['"`]|['"`]$/g, ''));
       if (params.length >= 2) aliasMap[params[1]] = params[0];
     }
-    const target = aliasMap[key] || key;
-    // search in workspace by path
-    for (const root of workspaceRoots) {
-      const candidates = [path.join(root, target), path.join(root, 'templates', target)];
-      for (const c of candidates) {
-        try {
-          // probe with known extensions
-          const variants = [c, c + '.njs', c + '.nhtml', c + '.nts'];
-          for (const v of variants) {
-            if (fs.existsSync(v)) {
-              const uri = 'file://' + v;
-              return Location.create(uri, Range.create(Position.create(0, 0), Position.create(0, 0)));
-            }
-          }
-        } catch {}
+    let target = aliasMap[key] || key;
+    // also scan workspace index for requireAs aliases
+    if (target === key) {
+      for (const [, info] of fileIndex) {
+        const mapped = info.requireAs.get(key);
+        if (mapped) { target = mapped; break; }
       }
+    }
+    const tryResolve = (rel: string, baseDirs: string[]): string | null => {
+      for (const base of baseDirs) {
+        const c = path.isAbsolute(rel) ? rel : path.join(base, rel);
+        const variants = [c, c + '.njs', c + '.nhtml', c + '.nts'];
+        for (const v of variants) { if (fs.existsSync(v)) return v; }
+      }
+      return null;
+    };
+    const currentDir = textDocument.uri.startsWith('file:') ? path.dirname(url.fileURLToPath(textDocument.uri)) : process.cwd();
+    const bases = [currentDir, ...workspaceRoots, ...workspaceRoots.map(r => path.join(r, 'templates'))];
+    const resolved = tryResolve(target, bases);
+    if (resolved) {
+      const uri = 'file://' + resolved;
+      return Location.create(uri, Range.create(Position.create(0, 0), Position.create(0, 0)));
     }
   }
   // If on a block/slot declaration name, just return its own location
