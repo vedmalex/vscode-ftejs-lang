@@ -1,6 +1,6 @@
 # fte-js-template (VS Code extension)
 
-Syntax highlighting for fte.js templates in HTML, JS/TS and Markdown files.
+Language support for fte.js templates: syntax highlighting, IntelliSense (LSP), and a language-aware formatter for HTML/JS/TS/Markdown and code-generation templates.
 
 ### Features
 - **Languages**: `template-html` (`.nhtml`), `template-js` (`.njs`), `template-typescript` (`.nts`), `template-markdown` (`.nmd`) + inline templates in JS/TS via tagged template `fte`
@@ -31,12 +31,28 @@ const html = fte`<div>
 ### LSP capabilities
 - Completions for directives, `content`/`partial`, snippets for `block/slot` with auto `end`
 - Hover, diagnostics (parse/structure/directives), go-to-definition/references for blocks
-- Formatting: language-aware (Prettier for text, JS/TS rules for template code), on-type end insertion
+- Formatting: language-aware (Prettier for text segments, JS/TS rules for template code), on-type end insertion, code actions (close open blocks, fix unmatched end)
+
+### Configuration
+- `ftejs.parserPath` (string, optional): absolute path to local `fte.js-parser` when developing locally. If empty, the server attempts to resolve the npm package `fte.js-parser` automatically. The extension depends on `fte.js-parser` and installs it by default.
+
+### Formatting model
+- Template segments (`<# ... #>`, `block/slot/end`) are indented using JS/TS bracket logic and template nesting levels.
+- Text segments are formatted via Prettier with a host parser inferred from file extension:
+  - `.nhtml` → `html`
+  - `.nmd` → `markdown`
+  - `.nts` → `typescript`
+  - `.njs` (default) → `babel`
 
 ### Development
 - Press F5 to launch VS Code Extension Host.
 - Edit grammars under `syntaxes/` and `language-configuration.json`.
 - Quick reload: Cmd/Ctrl+R in the Extension Host window.
+- Workspaces: this repo uses npm workspaces for `client/` and `server/`. Build both with `npm run compile`.
+
+### Documentation for users and agents
+- Runtime usage and API: `USAGE.md` (synced from the main fte2 project). Update with `npm run docs:sync-usage` (set `FTE2_USAGE` if needed).
+- AI authoring guide: `agents.md`.
 
 ### Release
 - Bump `version` in `package.json`.
@@ -51,5 +67,5 @@ const html = fte`<div>
 
 The extension injects template delimiters into Python/Swift/Ruby/Go/PHP files to highlight `#{}`, `<# #>`, EJS tags and comments inside strings or code where applicable.
 
-### Publishing (CI)
+### License
 MIT
