@@ -49,11 +49,9 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!editor) return;
       const name = await vscode.window.showInputBox({ prompt: 'Partial name (file base name without extension)', value: 'partial' });
       if (!name) return;
-      // suggest folder near current file
       const docUri = editor.document.uri;
       const baseDir = path.dirname(docUri.fsPath);
       const filePath = path.join(baseDir, `${name}.njs`);
-      // create file if not exists with minimal scaffold
       const scaffold = `<#@ context 'context' #>\n`;
       const wsedit = new vscode.WorkspaceEdit();
       try {
@@ -64,9 +62,7 @@ export async function activate(context: vscode.ExtensionContext) {
           wsedit.insert(fileUri, new vscode.Position(0, 0), scaffold);
           await vscode.workspace.applyEdit(wsedit);
         }
-        // insert call into current editor
         editor.insertSnippet(new vscode.SnippetString(`#{partial(context, '${name}')}\n`));
-        // optionally open the new partial
         const open = await vscode.window.showQuickPick(['Open partial', 'Skip'], { placeHolder: 'Open created partial?' });
         if (open === 'Open partial') {
           const doc = await vscode.workspace.openTextDocument(fileUri);
@@ -75,6 +71,32 @@ export async function activate(context: vscode.ExtensionContext) {
       } catch (e) {
         vscode.window.showErrorMessage(`Failed to create partial: ${e}`);
       }
+    }),
+    // Prompted refactors from server-provided actions
+    vscode.commands.registerCommand('ftejs.refactor.toBlock', async (payload: { uri: string; range: { start: vscode.Position; end: vscode.Position } }) => {
+      const editor = vscode.window.activeTextEditor; if (!editor) return;
+      const name = await vscode.window.showInputBox({ prompt: 'Block name', value: 'extracted' }); if (!name) return;
+      const selectionText = editor.document.getText(new vscode.Range(payload.range.start, payload.range.end));
+      const blockDecl = `<# block '${name}' : #>\n${selectionText}\n<# end #>\n`;
+      const ws = new vscode.WorkspaceEdit();
+      ws.insert(editor.document.uri, new vscode.Position(payload.range.start.line, 0), blockDecl);
+      ws.replace(editor.document.uri, new vscode.Range(payload.range.start, payload.range.end), `#{content('${name}')}`);
+      await vscode.workspace.applyEdit(ws);
+    }),
+    vscode.commands.registerCommand('ftejs.refactor.toSlot', async (payload: { uri: string; range: { start: vscode.Position; end: vscode.Position } }) => {
+      const editor = vscode.window.activeTextEditor; if (!editor) return;
+      const name = await vscode.window.showInputBox({ prompt: 'Slot name', value: 'extracted' }); if (!name) return;
+      const selectionText = editor.document.getText(new vscode.Range(payload.range.start, payload.range.end));
+      const slotDecl = `<# slot '${name}' : #>\n${selectionText}\n<# end #>\n`;
+      const ws = new vscode.WorkspaceEdit();
+      ws.insert(editor.document.uri, new vscode.Position(payload.range.start.line, 0), slotDecl);
+      ws.replace(editor.document.uri, new vscode.Range(payload.range.start, payload.range.end), `#{slot('${name}')}`);
+      await vscode.workspace.applyEdit(ws);
+    }),
+    vscode.commands.registerCommand('ftejs.refactor.toPartial', async (payload: { uri: string; range: { start: vscode.Position; end: vscode.Position } }) => {
+      const editor = vscode.window.activeTextEditor; if (!editor) return;
+      const name = await vscode.window.showInputBox({ prompt: 'Partial name', value: 'extracted-partial' }); if (!name) return;
+      editor.insertSnippet(new vscode.SnippetString(`#{partial(context, '${name}')}`), new vscode.Range(payload.range.start, payload.range.end));
     })
   );
 }

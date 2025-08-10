@@ -973,37 +973,10 @@ connection.onCodeAction(({ textDocument, range, context }) => {
       kind: 'refactor.rewrite',
       edit: { changes: { [textDocument.uri]: [TextEdit.replace(range, `<# ${selectionText} #>`)] } }
     });
-    // Extract selection to named block + replace with content('name')
-    const blockName = 'extracted';
-    const blockDecl = `<# block '${blockName}' : #>\n${selectionText}\n<# end #>\n`;
-    actions.push({
-      title: "Transform to block (extract + content('name'))",
-      kind: 'refactor.extract',
-      edit: { changes: { [textDocument.uri]: [
-        TextEdit.insert(Position.create(range.start.line, 0), blockDecl),
-        TextEdit.replace(range, `#{content('${blockName}')}`)
-      ] } }
-    });
-    // Extract selection to named slot + replace with slot('name')
-    const slotName = 'extracted';
-    const slotDecl = `<# slot '${slotName}' : #>\n${selectionText}\n<# end #>\n`;
-    actions.push({
-      title: "Transform to slot (extract + slot('name'))",
-      kind: 'refactor.extract',
-      edit: { changes: { [textDocument.uri]: [
-        TextEdit.insert(Position.create(range.start.line, 0), slotDecl),
-        TextEdit.replace(range, `#{slot('${slotName}')}`)
-      ] } }
-    });
-    // Transform to partial call (user should create partial template separately)
-    const partialName = 'extracted-partial';
-    actions.push({
-      title: "Transform to partial (replace with partial(context,'name'))",
-      kind: 'refactor.rewrite',
-      edit: { changes: { [textDocument.uri]: [
-        TextEdit.replace(range, `#{partial(context, '${partialName}')}`)
-      ] } }
-    });
+    // Prompted transforms (handled on client via commands)
+    actions.push({ title: "Transform to block (prompt name)", kind: 'refactor.extract', command: { title: 'transform', command: 'ftejs.refactor.toBlock', arguments: [{ uri: textDocument.uri, range }] } });
+    actions.push({ title: "Transform to slot (prompt name)", kind: 'refactor.extract', command: { title: 'transform', command: 'ftejs.refactor.toSlot', arguments: [{ uri: textDocument.uri, range }] } });
+    actions.push({ title: "Transform to partial (prompt name)", kind: 'refactor.rewrite', command: { title: 'transform', command: 'ftejs.refactor.toPartial', arguments: [{ uri: textDocument.uri, range }] } });
   }
   // Refactor: extract heavy expression inside #{ ... } to const and use #{var}
   const curOffset = doc.offsetAt(range.start);
