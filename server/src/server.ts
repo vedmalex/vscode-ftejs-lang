@@ -55,6 +55,7 @@ let parser: any | undefined;
 let usageDocs: { functions: Record<string, string>; directives: Record<string, string> } = { functions: {}, directives: {} };
 let usageWatchers: Array<fs.FSWatcher> = [];
 let serverSettings: { format?: { textFormatter?: boolean; keepBlankLines?: number } } = { format: { textFormatter: true, keepBlankLines: 1 } };
+let workspaceRoots: string[] = [];
 
 function loadUsageDocsFrom(pathCandidates: string[]) {
   for (const p of pathCandidates) {
@@ -142,6 +143,7 @@ connection.onInitialize((params: InitializeParams) => {
     ...wsFolders.map((f) => path.join(f, 'USAGE.md')),
     path.join(process.cwd(), 'USAGE.md')
   ];
+  workspaceRoots = wsFolders;
   loadUsageDocsFrom(candidates);
   watchUsage(candidates);
 
@@ -488,6 +490,37 @@ connection.onDefinition(({ textDocument, position }) => {
     if (first) {
       const loc = Location.create(textDocument.uri, Range.create(doc.positionAt(first.pos), doc.positionAt(first.pos + first.content.length)));
       return loc;
+    }
+  }
+  // Go to partial template by alias or path
+  const around = text.slice(Math.max(0, offset - 100), Math.min(text.length, offset + 100));
+  const mp = around.match(/partial\(\s*[^,]+,\s*(["'`])([^"'`]+)\1/);
+  if (mp) {
+    const key = mp[2];
+    // try resolve alias from requireAs directives in this file
+    const aliasMap: Record<string, string> = {};
+    const dirRe = /<#@\s*requireAs\s*\(([^)]*)\)\s*#>/g;
+    let d: RegExpExecArray | null;
+    while ((d = dirRe.exec(text))) {
+      const params = d[1].split(',').map((s) => s.trim().replace(/^['"`]|['"`]$/g, ''));
+      if (params.length >= 2) aliasMap[params[1]] = params[0];
+    }
+    const target = aliasMap[key] || key;
+    // search in workspace by path
+    for (const root of workspaceRoots) {
+      const candidates = [path.join(root, target), path.join(root, 'templates', target)];
+      for (const c of candidates) {
+        try {
+          // probe with known extensions
+          const variants = [c, c + '.njs', c + '.nhtml', c + '.nts'];
+          for (const v of variants) {
+            if (fs.existsSync(v)) {
+              const uri = 'file://' + v;
+              return Location.create(uri, Range.create(Position.create(0, 0), Position.create(0, 0)));
+            }
+          }
+        } catch {}
+      }
     }
   }
   // If on a block/slot declaration name, just return its own location
