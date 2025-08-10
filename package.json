@@ -79,13 +79,15 @@
     "commands": [
       { "command": "ftejs.scaffold.block", "title": "fte.js: Insert Block" },
       { "command": "ftejs.scaffold.slot", "title": "fte.js: Insert Slot" },
-      { "command": "ftejs.scaffold.chunkPair", "title": "fte.js: Insert chunkStart/chunkEnd" }
+      { "command": "ftejs.scaffold.chunkPair", "title": "fte.js: Insert chunkStart/chunkEnd" },
+      { "command": "ftejs.scaffold.partial", "title": "fte.js: Create Partial and Insert Call" }
     ],
     "menus": {
       "editor/context": [
         { "command": "ftejs.scaffold.block", "group": "navigation@10", "when": "editorLangId =~ /template-/" },
         { "command": "ftejs.scaffold.slot", "group": "navigation@11", "when": "editorLangId =~ /template-/" },
-        { "command": "ftejs.scaffold.chunkPair", "group": "navigation@12", "when": "editorLangId =~ /template-/" }
+        { "command": "ftejs.scaffold.chunkPair", "group": "navigation@12", "when": "editorLangId =~ /template-/" },
+        { "command": "ftejs.scaffold.partial", "group": "navigation@13", "when": "editorLangId =~ /template-/" }
       ]
     },
     "languages": [
