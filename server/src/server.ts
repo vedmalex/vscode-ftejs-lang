@@ -21,6 +21,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as prettier from 'prettier';
+import * as url from 'url';
 
 // dynamic import of parser. Try explicit path, then package resolution
 function tryRequire(id: string) {
@@ -50,6 +51,60 @@ const connection = createConnection(ProposedFeatures.all);
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
 let parser: any | undefined;
+let usageDocs: { functions: Record<string, string>; directives: Record<string, string> } = { functions: {}, directives: {} };
+
+function loadUsageDocsFrom(pathCandidates: string[]) {
+  for (const p of pathCandidates) {
+    try {
+      const md = fs.readFileSync(p, 'utf8');
+      const functions: Record<string, string> = {};
+      const directives: Record<string, string> = {};
+      const lines = md.split(/\r?\n/);
+      let current: { type: 'func' | 'dir' | null; key?: string; buf: string[] } = { type: null, buf: [] };
+      const flush = () => {
+        if (current.type && current.key) {
+          const text = current.buf.join('\n').trim();
+          if (current.type === 'func') functions[current.key] = text;
+          if (current.type === 'dir') directives[current.key] = text;
+        }
+        current = { type: null, buf: [] };
+      };
+      for (const line of lines) {
+        const mFunc = line.match(/^###\s+([\w]+)\s*\(/);
+        const mChunks = line.match(/^###\s+Чанки.*chunkStart\(name\).*chunkEnd\(\)/);
+        const mDir = line.match(/^###\s+(\w+)/);
+        if (mFunc) {
+          flush();
+          current.type = 'func';
+          current.key = mFunc[1];
+          continue;
+        }
+        if (mChunks) {
+          flush();
+          current.type = 'func';
+          current.key = 'chunkStart';
+          current.buf.push('chunkStart(name), chunkEnd()');
+          // keep collecting
+          continue;
+        }
+        if (mDir) {
+          const key = mDir[1];
+          const known = ['extend','context','alias','requireAs','deindent','chunks','includeMainChunk','useHash','noContent','noSlots','noBlocks','noPartial','noOptions','promise','callback'];
+          if (known.includes(key)) {
+            flush();
+            current.type = 'dir';
+            current.key = key;
+            continue;
+          }
+        }
+        current.buf.push(line);
+      }
+      flush();
+      usageDocs = { functions, directives };
+      return;
+    } catch {}
+  }
+}
 
 connection.onInitialize((params: InitializeParams) => {
   const options = (params.initializationOptions || {}) as { parserPath?: string };
@@ -58,6 +113,13 @@ connection.onInitialize((params: InitializeParams) => {
   if (!parser) {
     connection.console.warn('fte.js parser not found. Set "ftejs.parserPath" or add dependency "fte.js-parser".');
   }
+  // load usage docs candidates (workspace USAGE.md and repo USAGE.md)
+  const wsFolders = params.workspaceFolders?.map((f) => url.fileURLToPath(f.uri)) || [];
+  const candidates: string[] = [
+    ...wsFolders.map((f) => path.join(f, 'USAGE.md')),
+    path.join(process.cwd(), 'USAGE.md')
+  ];
+  loadUsageDocsFrom(candidates);
 
   return {
     capabilities: {
@@ -325,29 +387,13 @@ connection.onHover(({ textDocument, position }) => {
     const around = text.slice(Math.max(0, offset - 40), Math.min(text.length, offset + 40));
     const func = around.match(/\b(partial|content|slot|chunkStart|chunkEnd)\b/);
     if (func) {
-      const docMap: Record<string, string> = {
-        partial: 'partial(obj, name): Render another template with given context. See USAGE.md (partial).',
-        content: 'content(blockName, ctx?): Render named block content. See USAGE.md (content).',
-        slot: 'slot(name, value?): Collect or render slot. See USAGE.md (slot).',
-        chunkStart: 'chunkStart(name): Start a chunk for multi-file output. See USAGE.md (chunks).',
-        chunkEnd: 'chunkEnd(): End current chunk. See USAGE.md (chunks).',
-      };
-      const info = docMap[func[1]];
+      const key = func[1];
+      const info = usageDocs.functions[key] || usageDocs.functions[key === 'chunkEnd' ? 'chunkStart' : key];
       if (info) return { contents: { kind: 'markdown', value: info + "\n\nSee also: USAGE.md" } };
     }
     const dir = around.match(/<#@\s*(\w+)/);
     if (dir) {
-      const dirMap: Record<string, string> = {
-        extend: 'extend: set parent template. See USAGE.md (extend).',
-        context: 'context: set local context name. See USAGE.md (context).',
-        alias: 'alias: register aliases for template. See USAGE.md (alias).',
-        requireAs: 'requireAs: import template under alias for partial().',
-        deindent: 'deindent: strip left indentation for result.',
-        chunks: 'chunks: enable multi-file generation. See USAGE.md (chunks).',
-        includeMainChunk: 'includeMainChunk: include main chunk in result.',
-        useHash: 'useHash: return {name:content} instead of array.',
-      };
-      const info = dirMap[dir[1]];
+      const info = usageDocs.directives[dir[1]];
       if (info) return { contents: { kind: 'markdown', value: info + "\n\nSee also: USAGE.md" } };
     }
     return { contents: { kind: 'plaintext', value: `fte.js: ${hit.type}` } };
