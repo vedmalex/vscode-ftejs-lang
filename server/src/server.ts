@@ -255,6 +255,22 @@ function computeDiagnostics(doc: TextDocument): Diagnostic[] {
     }
   } catch {}
 
+  // Duplicate block/slot declarations
+  try {
+    const seen: Record<string, number> = {};
+    const rxDecl = /<#-?\s*(block|slot)\s*(["'`])([^"'`]+)\2\s*:\s*-?#>/g;
+    let d: RegExpExecArray | null;
+    while ((d = rxDecl.exec(text))) {
+      const name = d[3];
+      seen[name] = (seen[name] || 0) + 1;
+      if (seen[name] > 1) {
+        const from = doc.positionAt(d.index);
+        const to = doc.positionAt(d.index + d[0].length);
+        diags.push({ severity: DiagnosticSeverity.Warning, range: { start: from, end: to }, message: `Duplicate ${d[1]} declaration: ${name}`, source: 'fte.js' });
+      }
+    }
+  } catch {}
+
   // Directive validation
   const dirRe = /<#@([\s\S]*?)#>/g;
   let d: RegExpExecArray | null;
