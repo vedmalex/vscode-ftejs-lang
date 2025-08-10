@@ -657,8 +657,14 @@ connection.onReferences(({ textDocument, position }) => {
   }
   // usages
   const usageRe = new RegExp(String.raw`content\(\s*(["'\`])${selected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\1`, 'g');
+  const slotRe = new RegExp(String.raw`slot\(\s*(["'\`])${selected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\1`, 'g');
   let u: RegExpExecArray | null;
   while ((u = usageRe.exec(text))) {
+    const start = doc.positionAt(u.index);
+    const end = doc.positionAt(u.index + u[0].length);
+    res.push(Location.create(textDocument.uri, Range.create(start, end)));
+  }
+  while ((u = slotRe.exec(text))) {
     const start = doc.positionAt(u.index);
     const end = doc.positionAt(u.index + u[0].length);
     res.push(Location.create(textDocument.uri, Range.create(start, end)));
@@ -671,6 +677,12 @@ connection.onReferences(({ textDocument, position }) => {
     let mu: RegExpExecArray | null;
     usageRe.lastIndex = 0;
     while ((mu = usageRe.exec(p))) {
+      const start = posFromOffset(p, mu.index);
+      const end = posFromOffset(p, mu.index + mu[0].length);
+      res.push(Location.create(uri, Range.create(start, end)));
+    }
+    slotRe.lastIndex = 0;
+    while ((mu = slotRe.exec(p))) {
       const start = posFromOffset(p, mu.index);
       const end = posFromOffset(p, mu.index + mu[0].length);
       res.push(Location.create(uri, Range.create(start, end)));
