@@ -29,6 +29,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "npm --workspace server run build && npm --workspace client run build",
     "watch": "npm --workspace server run watch & npm --workspace client run watch",
+    "docs:sync-usage": "node tools/sync-usage.js",
     "package": "vsce package --no-yarn",
     "publish:vsce": "vsce publish",
     "publish:openvsx": "ovsx publish",

@@ -58,6 +58,14 @@ This document teaches an AI agent how to write and maintain fte.js templates acr
    - `deindent` accepts 0 or 1 numeric param.
    - Flags like `noContent` must not have params.
 
+7) Prefer runtime helpers:
+   - Use `partial(obj, name)` to include other templates.
+   - Use `content(blockName, ctx?)` to render declared blocks.
+   - Use `slot(name, value?)` to collect/render named slots; repeated values are deduplicated.
+   - For multi-file generation use `chunkStart(name)`/`chunkEnd()` with `<#@ chunks 'main' #>` in the root template.
+
+See detailed runtime reference in `USAGE.md`. Keep `USAGE.md` in sync from the upstream project using `npm run docs:sync-usage`.
+
 ## Minimal scaffolds
 
 ### HTML page (`.nhtml`)
