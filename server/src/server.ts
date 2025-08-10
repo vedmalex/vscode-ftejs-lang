@@ -941,6 +941,37 @@ connection.onCodeAction(({ textDocument, range, context }) => {
       kind: 'refactor.rewrite',
       edit: { changes: { [textDocument.uri]: [TextEdit.replace(range, `<# ${selectionText} #>`)] } }
     });
+    // Extract selection to named block + replace with content('name')
+    const blockName = 'extracted';
+    const blockDecl = `<# block '${blockName}' : #>\n${selectionText}\n<# end #>\n`;
+    actions.push({
+      title: "Transform to block (extract + content('name'))",
+      kind: 'refactor.extract',
+      edit: { changes: { [textDocument.uri]: [
+        TextEdit.insert(Position.create(range.start.line, 0), blockDecl),
+        TextEdit.replace(range, `#{content('${blockName}')}`)
+      ] } }
+    });
+    // Extract selection to named slot + replace with slot('name')
+    const slotName = 'extracted';
+    const slotDecl = `<# slot '${slotName}' : #>\n${selectionText}\n<# end #>\n`;
+    actions.push({
+      title: "Transform to slot (extract + slot('name'))",
+      kind: 'refactor.extract',
+      edit: { changes: { [textDocument.uri]: [
+        TextEdit.insert(Position.create(range.start.line, 0), slotDecl),
+        TextEdit.replace(range, `#{slot('${slotName}')}`)
+      ] } }
+    });
+    // Transform to partial call (user should create partial template separately)
+    const partialName = 'extracted-partial';
+    actions.push({
+      title: "Transform to partial (replace with partial(context,'name'))",
+      kind: 'refactor.rewrite',
+      edit: { changes: { [textDocument.uri]: [
+        TextEdit.replace(range, `#{partial(context, '${partialName}')}`)
+      ] } }
+    });
   }
   // Refactor: extract heavy expression inside #{ ... } to const and use #{var}
   const curOffset = doc.offsetAt(range.start);
