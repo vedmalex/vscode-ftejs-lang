@@ -330,6 +330,35 @@ function computeDiagnostics(doc: TextDocument): Diagnostic[] {
         diags.push({ severity: DiagnosticSeverity.Warning, range: { start: from, end: to }, message: `Unknown block name: ${name}`, source: 'fte.js' });
       }
     }
+    // unresolved partial alias/path
+    const rp = /partial\(\s*[^,]+,\s*(["'`])([^"'`]+)\1/g;
+    while ((m = rp.exec(text))) {
+      const key = m[2];
+      // try local requireAs map
+      const dirRe = /<#@\s*requireAs\s*\(([^)]*)\)\s*#>/g; let d: RegExpExecArray | null; const local = new Map<string,string>();
+      while ((d = dirRe.exec(text))) {
+        const params = d[1].split(',').map((s) => s.trim().replace(/^['"`]|['"`]$/g, ''));
+        if (params.length >= 2) local.set(params[1], params[0]);
+      }
+      let target = local.get(key) || key;
+      if (target === key) {
+        for (const [, info] of fileIndex) { const mapped = info.requireAs.get(key); if (mapped) { target = mapped; break; } }
+      }
+      const bases = [ ...workspaceRoots, ...workspaceRoots.map(r => path.join(r, 'templates')) ];
+      const exists = (rel: string) => {
+        for (const base of bases) {
+          const p = path.isAbsolute(rel) ? rel : path.join(base, rel);
+          const variants = [p, p + '.njs', p + '.nhtml', p + '.nts'];
+          for (const v of variants) { if (fs.existsSync(v)) return true; }
+        }
+        return false;
+      };
+      if (!exists(target)) {
+        const from = doc.positionAt(m.index);
+        const to = doc.positionAt(m.index + m[0].length);
+        diags.push({ severity: DiagnosticSeverity.Warning, range: { start: from, end: to }, message: `Unresolved partial: ${key}`, source: 'fte.js' });
+      }
+    }
   } catch {}
 
   // Duplicate block/slot declarations
@@ -473,7 +502,11 @@ connection.onCompletion(({ textDocument, position }) => {
   // directive completion inside <#@ ... #>
   if (/<#@\s+[\w-]*$/.test(prefix)) {
     items.push(
-      ...DIRECTIVES.map((d) => ({ label: d, kind: CompletionItemKind.Keyword }))
+      ...DIRECTIVES.map((d) => ({
+        label: d,
+        kind: CompletionItemKind.Keyword,
+        documentation: usageDocs.directives[d] || undefined
+      }))
     );
   }
 
@@ -516,13 +549,12 @@ connection.onCompletion(({ textDocument, position }) => {
   // content()/partial() suggestions inside #{ ... }
   if (/#\{\s*[\w$]*$/.test(prefix)) {
     // suggest function names
-    items.push(
-      { label: 'content', kind: CompletionItemKind.Function },
-      { label: 'partial', kind: CompletionItemKind.Function },
-      { label: 'slot', kind: CompletionItemKind.Function },
-      { label: 'chunkStart', kind: CompletionItemKind.Function },
-      { label: 'chunkEnd', kind: CompletionItemKind.Function }
-    );
+    const f = (name: string) => ({
+      label: name,
+      kind: CompletionItemKind.Function,
+      documentation: usageDocs.functions[name] || undefined
+    } as CompletionItem);
+    items.push(f('content'), f('partial'), f('slot'), f('chunkStart'), f('chunkEnd'));
     // suggest known block/slot names inside string literal argument
     const argPrefix = before.match(/content\(\s*(["'`])([^"'`]*)$/) || before.match(/slot\(\s*(["'`])([^"'`]*)$/);
     if (argPrefix) {
