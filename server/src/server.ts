@@ -85,25 +85,7 @@ function indexFile(absPath: string) {
   try {
     const uri = 'file://' + absPath;
     const text = fs.readFileSync(absPath, 'utf8');
-    const blocks = new Map<string, { start: number; end: number }>();
-    const slots = new Map<string, { start: number; end: number }>();
-    const requireAs = new Map<string, string>();
-    // find block/slot declarations
-    const rxDecl = /<#-?\s*(block|slot)\s*(["'`])([^"'`]+)\2\s*:\s*-?#>/g;
-    let m: RegExpExecArray | null;
-    while ((m = rxDecl.exec(text))) {
-      const name = m[3];
-      const range = { start: m.index, end: m.index + m[0].length };
-      if (m[1] === 'block') blocks.set(name, range); else slots.set(name, range);
-    }
-    // requireAs directives
-    const dirRe = /<#@\s*requireAs\s*\(([^)]*)\)\s*#>/g;
-    let d: RegExpExecArray | null;
-    while ((d = dirRe.exec(text))) {
-      const params = d[1].split(',').map((s) => s.trim().replace(/^['"`]|['"`]$/g, ''));
-      if (params.length >= 2) requireAs.set(params[1], params[0]);
-    }
-    fileIndex.set(uri, { uri, path: absPath, blocks, slots, requireAs });
+    indexText(uri, text, absPath);
   } catch {}
 }
 
@@ -112,6 +94,36 @@ function indexWorkspace() {
     const files = walkDir(root);
     for (const f of files) indexFile(f);
   }
+}
+
+function indexText(uri: string, text: string, absPath?: string) {
+  const blocks = new Map<string, { start: number; end: number }>();
+  const slots = new Map<string, { start: number; end: number }>();
+  const requireAs = new Map<string, string>();
+  const rxDecl = /<#-?\s*(block|slot)\s*(["'`])([^"'`]+)\2\s*:\s*-?#>/g;
+  let m: RegExpExecArray | null;
+  while ((m = rxDecl.exec(text))) {
+    const name = m[3];
+    const range = { start: m.index, end: m.index + m[0].length };
+    if (m[1] === 'block') blocks.set(name, range); else slots.set(name, range);
+  }
+  const dirRe = /<#@\s*requireAs\s*\(([^)]*)\)\s*#>/g;
+  let d: RegExpExecArray | null;
+  while ((d = dirRe.exec(text))) {
+    const params = d[1].split(',').map((s) => s.trim().replace(/^['"`]|['"`]$/g, ''));
+    if (params.length >= 2) requireAs.set(params[1], params[0]);
+  }
+  fileIndex.set(uri, { uri, path: absPath, blocks, slots, requireAs });
+}
+
+function posFromOffset(text: string, offset: number): Position {
+  let line = 0;
+  let col = 0;
+  for (let i = 0; i < offset && i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    if (ch === 10 /*\n*/ ) { line++; col = 0; } else { col++; }
+  }
+  return Position.create(line, col);
 }
 
 function loadUsageDocsFrom(pathCandidates: string[]) {
@@ -659,9 +671,8 @@ connection.onReferences(({ textDocument, position }) => {
     let mu: RegExpExecArray | null;
     usageRe.lastIndex = 0;
     while ((mu = usageRe.exec(p))) {
-      const start = Position.create(0, 0);
-      const end = Position.create(0, 0);
-      // Without sourcemaps, return file-level location for now
+      const start = posFromOffset(p, mu.index);
+      const end = posFromOffset(p, mu.index + mu[0].length);
       res.push(Location.create(uri, Range.create(start, end)));
     }
   }
@@ -906,10 +917,15 @@ connection.onCodeAction(({ textDocument, range, context }) => {
 documents.onDidChangeContent(({ document }) => {
   const diags = computeDiagnostics(document);
   connection.sendDiagnostics({ uri: document.uri, diagnostics: diags });
+  // re-index this document
+  try {
+    indexText(document.uri, document.getText());
+  } catch {}
 });
 documents.onDidOpen(({ document }) => {
   const diags = computeDiagnostics(document);
   connection.sendDiagnostics({ uri: document.uri, diagnostics: diags });
+  try { indexText(document.uri, document.getText()); } catch {}
 });
 connection.onDocumentSymbol(({ textDocument }) => {
   const doc = documents.get(textDocument.uri);
