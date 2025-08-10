@@ -279,6 +279,7 @@ function computeDiagnostics(doc: TextDocument): Diagnostic[] {
   } catch {}
 
   // Directive validation
+  // TODO: cross-file validation (P1): unknown aliases in `partial` or unresolvable paths
   const dirRe = /<#@([\s\S]*?)#>/g;
   let d: RegExpExecArray | null;
   while ((d = dirRe.exec(text))) {
