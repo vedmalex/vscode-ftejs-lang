@@ -28,14 +28,9 @@
           },
           "name": "meta.directive.template",
           "patterns": [
-            {
-              "name": "keyword.control.directive",
-              "match": "\\w+"
-            },
-            {
-              "name": "string.unquoted.directive",
-              "match": "[^\\s#>]*"
-            }
+            { "name": "support.type.directive.fte", "match": "\\b(extend|context|alias|requireAs|deindent|chunks|includeMainChunk|useHash|noContent|noSlots|noBlocks|noPartial|noOptions|promise|callback)\\b" },
+            { "name": "keyword.control.directive", "match": "\\w+" },
+            { "name": "string.unquoted.directive", "match": "[^\\s#>]*" }
           ]
         },
         {
@@ -52,11 +47,7 @@
             }
           },
           "contentName": "meta.embedded.block.javascript",
-          "patterns": [
-            {
-              "include": "source.js"
-            }
-          ]
+          "patterns": [ { "include": "source.ts" }, { "name": "support.function.fte", "match": "\\b(partial|content|slot|chunkStart|chunkEnd)\\s*(?=\\()" } ]
         },
         {
           "begin": "!{",
@@ -80,11 +71,7 @@
             }
           },
           "contentName": "meta.embedded.block.javascript",
-          "patterns": [
-            {
-              "include": "source.js"
-            }
-          ]
+          "patterns": [ { "include": "source.ts" }, { "name": "support.function.fte", "match": "\\b(partial|content|slot|chunkStart|chunkEnd)\\s*(?=\\()" } ]
         },
         {
           "begin": "<\\*",

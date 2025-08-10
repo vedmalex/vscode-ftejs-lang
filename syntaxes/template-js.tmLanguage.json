@@ -29,6 +29,10 @@
           "name": "meta.directive.template",
           "patterns": [
             {
+              "name": "support.type.directive.fte",
+              "match": "\\b(extend|context|alias|requireAs|deindent|chunks|includeMainChunk|useHash|noContent|noSlots|noBlocks|noPartial|noOptions|promise|callback)\\b"
+            },
+            {
               "name": "keyword.control.directive",
               "match": "\\w+"
             },
@@ -53,9 +57,8 @@
           },
           "contentName": "meta.embedded.block.javascript",
           "patterns": [
-            {
-              "include": "source.js"
-            }
+            { "include": "source.js" },
+            { "name": "support.function.fte", "match": "\\b(partial|content|slot|chunkStart|chunkEnd)\\s*(?=\\()" }
           ]
         },
         {
@@ -81,9 +84,8 @@
           },
           "contentName": "meta.embedded.block.javascript",
           "patterns": [
-            {
-              "include": "source.js"
-            }
+            { "include": "source.js" },
+            { "name": "support.function.fte", "match": "\\b(partial|content|slot|chunkStart|chunkEnd)\\s*(?=\\()" }
           ]
         },
         {
