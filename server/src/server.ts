@@ -54,7 +54,7 @@ const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 let parser: any | undefined;
 let usageDocs: { functions: Record<string, string>; directives: Record<string, string> } = { functions: {}, directives: {} };
 let usageWatchers: Array<fs.FSWatcher> = [];
-let serverSettings: { format?: { textFormatter?: boolean; keepBlankLines?: number } } = { format: { textFormatter: true, keepBlankLines: 1 } };
+let serverSettings: { format?: { textFormatter?: boolean; keepBlankLines?: number }, docs?: { usagePath?: string } } = { format: { textFormatter: true, keepBlankLines: 1 }, docs: {} };
 let workspaceRoots: string[] = [];
 const prettierConfigCache: Record<string, any> = {};
 
@@ -145,6 +145,7 @@ connection.onInitialize((params: InitializeParams) => {
     path.join(process.cwd(), 'USAGE.md')
   ];
   workspaceRoots = wsFolders;
+  // prefer configured docs path if provided later via settings
   loadUsageDocsFrom(candidates);
   watchUsage(candidates);
 
@@ -174,6 +175,12 @@ async function refreshSettings() {
   try {
     const cfg: any = await (connection as any).workspace?.getConfiguration?.('ftejs');
     if (cfg) serverSettings = cfg;
+    // reload docs from configured path if available
+    const usagePath = serverSettings?.docs?.usagePath;
+    if (usagePath && fs.existsSync(usagePath)) {
+      loadUsageDocsFrom([usagePath]);
+      watchUsage([usagePath]);
+    }
   } catch {}
 }
 
