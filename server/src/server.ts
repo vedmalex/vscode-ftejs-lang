@@ -58,6 +58,62 @@ let serverSettings: { format?: { textFormatter?: boolean; keepBlankLines?: numbe
 let workspaceRoots: string[] = [];
 const prettierConfigCache: Record<string, any> = {};
 
+// Workspace index (P1)
+type FileIndex = {
+  uri: string
+  path?: string
+  blocks: Map<string, { start: number; end: number }>
+  slots: Map<string, { start: number; end: number }>
+  requireAs: Map<string, string>
+}
+const fileIndex = new Map<string, FileIndex>();
+
+function walkDir(root: string, out: string[] = []) {
+  try {
+    const list = fs.readdirSync(root, { withFileTypes: true });
+    for (const ent of list) {
+      if (ent.name === 'node_modules' || ent.name.startsWith('.git')) continue;
+      const p = path.join(root, ent.name);
+      if (ent.isDirectory()) walkDir(p, out);
+      else if (/\.(njs|nhtml|nts|nmd)$/i.test(ent.name)) out.push(p);
+    }
+  } catch {}
+  return out;
+}
+
+function indexFile(absPath: string) {
+  try {
+    const uri = 'file://' + absPath;
+    const text = fs.readFileSync(absPath, 'utf8');
+    const blocks = new Map<string, { start: number; end: number }>();
+    const slots = new Map<string, { start: number; end: number }>();
+    const requireAs = new Map<string, string>();
+    // find block/slot declarations
+    const rxDecl = /<#-?\s*(block|slot)\s*(["'`])([^"'`]+)\2\s*:\s*-?#>/g;
+    let m: RegExpExecArray | null;
+    while ((m = rxDecl.exec(text))) {
+      const name = m[3];
+      const range = { start: m.index, end: m.index + m[0].length };
+      if (m[1] === 'block') blocks.set(name, range); else slots.set(name, range);
+    }
+    // requireAs directives
+    const dirRe = /<#@\s*requireAs\s*\(([^)]*)\)\s*#>/g;
+    let d: RegExpExecArray | null;
+    while ((d = dirRe.exec(text))) {
+      const params = d[1].split(',').map((s) => s.trim().replace(/^['"`]|['"`]$/g, ''));
+      if (params.length >= 2) requireAs.set(params[1], params[0]);
+    }
+    fileIndex.set(uri, { uri, path: absPath, blocks, slots, requireAs });
+  } catch {}
+}
+
+function indexWorkspace() {
+  for (const root of workspaceRoots) {
+    const files = walkDir(root);
+    for (const f of files) indexFile(f);
+  }
+}
+
 function loadUsageDocsFrom(pathCandidates: string[]) {
   for (const p of pathCandidates) {
     try {
@@ -148,6 +204,8 @@ connection.onInitialize((params: InitializeParams) => {
   // prefer configured docs path if provided later via settings
   loadUsageDocsFrom(candidates);
   watchUsage(candidates);
+  // initial index
+  indexWorkspace();
 
   return {
     capabilities: {
@@ -592,6 +650,20 @@ connection.onReferences(({ textDocument, position }) => {
     const start = doc.positionAt(u.index);
     const end = doc.positionAt(u.index + u[0].length);
     res.push(Location.create(textDocument.uri, Range.create(start, end)));
+  }
+  // cross-file usages
+  for (const [uri, info] of fileIndex) {
+    if (uri === textDocument.uri) continue;
+    const p = info.path ? fs.readFileSync(info.path, 'utf8') : '';
+    if (!p) continue;
+    let mu: RegExpExecArray | null;
+    usageRe.lastIndex = 0;
+    while ((mu = usageRe.exec(p))) {
+      const start = Position.create(0, 0);
+      const end = Position.create(0, 0);
+      // Without sourcemaps, return file-level location for now
+      res.push(Location.create(uri, Range.create(start, end)));
+    }
   }
   return res;
 });
