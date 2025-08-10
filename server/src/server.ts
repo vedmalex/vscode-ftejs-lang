@@ -9,6 +9,7 @@ import {
   TextDocumentSyncKind,
   Diagnostic,
   DiagnosticSeverity,
+  DidChangeConfigurationNotification,
   Location,
   Range,
   Position,
@@ -53,6 +54,7 @@ const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 let parser: any | undefined;
 let usageDocs: { functions: Record<string, string>; directives: Record<string, string> } = { functions: {}, directives: {} };
 let usageWatchers: Array<fs.FSWatcher> = [];
+let serverSettings: { format?: { textFormatter?: boolean; keepBlankLines?: number } } = { format: { textFormatter: true, keepBlankLines: 1 } };
 
 function loadUsageDocsFrom(pathCandidates: string[]) {
   for (const p of pathCandidates) {
@@ -159,6 +161,23 @@ connection.onInitialize((params: InitializeParams) => {
   };
 });
 
+connection.onInitialized(async () => {
+  try {
+    await connection.client.register(DidChangeConfigurationNotification.type, undefined as any);
+  } catch {}
+});
+
+async function refreshSettings() {
+  try {
+    const cfg: any = await (connection as any).workspace?.getConfiguration?.('ftejs');
+    if (cfg) serverSettings = cfg;
+  } catch {}
+}
+
+connection.onDidChangeConfiguration(async () => {
+  await refreshSettings();
+});
+
 const DIRECTIVES = [
   'extend', 'context', 'alias', 'deindent', 'chunks', 'includeMainChunk', 'useHash',
   'noContent', 'noSlots', 'noBlocks', 'noPartial', 'noOptions', 'promise', 'callback', 'requireAs'
@@ -216,6 +235,22 @@ function computeDiagnostics(doc: TextDocument): Diagnostic[] {
     const end = doc.positionAt(it.index + 1);
     diags.push({ severity: DiagnosticSeverity.Error, range: { start, end }, message: `Unclosed ${it.name}`, source: 'fte.js' });
   }
+
+  // Unknown content('name') references
+  try {
+    const ast = parseContent(text) as any;
+    const known = new Set(Object.keys(ast?.blocks || {}));
+    const rx = /content\(\s*(["'`])([^"'`]+)\1/g;
+    let m: RegExpExecArray | null;
+    while ((m = rx.exec(text))) {
+      const name = m[2];
+      if (!known.has(name)) {
+        const from = doc.positionAt(m.index);
+        const to = doc.positionAt(m.index + m[0].length);
+        diags.push({ severity: DiagnosticSeverity.Warning, range: { start: from, end: to }, message: `Unknown block name: ${name}`, source: 'fte.js' });
+      }
+    }
+  } catch {}
 
   // Directive validation
   const dirRe = /<#@([\s\S]*?)#>/g;
