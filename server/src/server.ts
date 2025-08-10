@@ -300,7 +300,10 @@ connection.onCompletion(({ textDocument, position }) => {
   if (/#\{\s*[\w$]*$/.test(prefix)) {
     items.push(
       { label: 'content', kind: CompletionItemKind.Function },
-      { label: 'partial', kind: CompletionItemKind.Function }
+      { label: 'partial', kind: CompletionItemKind.Function },
+      { label: 'slot', kind: CompletionItemKind.Function },
+      { label: 'chunkStart', kind: CompletionItemKind.Function },
+      { label: 'chunkEnd', kind: CompletionItemKind.Function }
     );
   }
 
@@ -318,6 +321,35 @@ connection.onHover(({ textDocument, position }) => {
   // naive hover: show node type at position
   const hit = (ast.main as any[]).find((n) => offset >= n.pos && offset <= (n.pos + (n.content?.length || 0)));
   if (hit) {
+    // enrich hover for known functions/directives by scanning the token near cursor
+    const around = text.slice(Math.max(0, offset - 40), Math.min(text.length, offset + 40));
+    const func = around.match(/\b(partial|content|slot|chunkStart|chunkEnd)\b/);
+    if (func) {
+      const docMap: Record<string, string> = {
+        partial: 'partial(obj, name): Render another template with given context. See USAGE.md (partial).',
+        content: 'content(blockName, ctx?): Render named block content. See USAGE.md (content).',
+        slot: 'slot(name, value?): Collect or render slot. See USAGE.md (slot).',
+        chunkStart: 'chunkStart(name): Start a chunk for multi-file output. See USAGE.md (chunks).',
+        chunkEnd: 'chunkEnd(): End current chunk. See USAGE.md (chunks).',
+      };
+      const info = docMap[func[1]];
+      if (info) return { contents: { kind: 'markdown', value: info + "\n\nSee also: USAGE.md" } };
+    }
+    const dir = around.match(/<#@\s*(\w+)/);
+    if (dir) {
+      const dirMap: Record<string, string> = {
+        extend: 'extend: set parent template. See USAGE.md (extend).',
+        context: 'context: set local context name. See USAGE.md (context).',
+        alias: 'alias: register aliases for template. See USAGE.md (alias).',
+        requireAs: 'requireAs: import template under alias for partial().',
+        deindent: 'deindent: strip left indentation for result.',
+        chunks: 'chunks: enable multi-file generation. See USAGE.md (chunks).',
+        includeMainChunk: 'includeMainChunk: include main chunk in result.',
+        useHash: 'useHash: return {name:content} instead of array.',
+      };
+      const info = dirMap[dir[1]];
+      if (info) return { contents: { kind: 'markdown', value: info + "\n\nSee also: USAGE.md" } };
+    }
     return { contents: { kind: 'plaintext', value: `fte.js: ${hit.type}` } };
   }
   return null;
