@@ -942,6 +942,32 @@ connection.onCodeAction(({ textDocument, range, context }) => {
       edit: { changes: { [textDocument.uri]: [TextEdit.replace(range, `<# ${selectionText} #>`)] } }
     });
   }
+  // Refactor: extract heavy expression inside #{ ... } to const and use #{var}
+  const curOffset = doc.offsetAt(range.start);
+  const before = text.slice(0, curOffset);
+  const after = text.slice(curOffset);
+  const openIdx = before.lastIndexOf('#{');
+  const openBangIdx = before.lastIndexOf('!{');
+  const open = Math.max(openIdx, openBangIdx);
+  const closeRel = after.indexOf('}');
+  if (open >= 0 && closeRel >= 0) {
+    const exprStart = open + 2; // after #{ or !{
+    const exprEnd = curOffset + closeRel; // index of '}'
+    const exprText = text.slice(exprStart, exprEnd);
+    if (exprText.trim().length > 20) { // heuristic: heavy
+      let idx = 1; let varName = `_expr${idx}`;
+      while (text.includes(varName)) { idx += 1; varName = `_expr${idx}`; }
+      const lineStart = Position.create(range.start.line, 0);
+      const insertDecl = TextEdit.insert(lineStart, `<# const ${varName} = ${exprText.trim()} #>\n`);
+      const replaceRange = Range.create(doc.positionAt(exprStart), doc.positionAt(exprEnd));
+      const replaceExpr = TextEdit.replace(replaceRange, ` ${varName} `);
+      actions.push({
+        title: 'Extract expression to const and use in template',
+        kind: 'refactor.extract',
+        edit: { changes: { [textDocument.uri]: [insertDecl, replaceExpr] } }
+      });
+    }
+  }
   // Quick fix: create missing block for Unknown block name diagnostics
   for (const d of diagnostics) {
     const m = d.message.match(/^Unknown block name: (.+)$/);
