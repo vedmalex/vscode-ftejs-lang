@@ -52,6 +52,7 @@ const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
 let parser: any | undefined;
 let usageDocs: { functions: Record<string, string>; directives: Record<string, string> } = { functions: {}, directives: {} };
+let usageWatchers: Array<fs.FSWatcher> = [];
 
 function loadUsageDocsFrom(pathCandidates: string[]) {
   for (const p of pathCandidates) {
@@ -106,6 +107,26 @@ function loadUsageDocsFrom(pathCandidates: string[]) {
   }
 }
 
+function watchUsage(candidates: string[]) {
+  // clear previous watchers
+  for (const w of usageWatchers) {
+    try { w.close(); } catch {}
+  }
+  usageWatchers = [];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const w = fs.watch(p, { persistent: false }, (evt) => {
+          if (evt === 'change') {
+            loadUsageDocsFrom([p]);
+          }
+        });
+        usageWatchers.push(w);
+      }
+    } catch {}
+  }
+}
+
 connection.onInitialize((params: InitializeParams) => {
   const options = (params.initializationOptions || {}) as { parserPath?: string };
   const parserPath = options.parserPath || '';
@@ -120,6 +141,7 @@ connection.onInitialize((params: InitializeParams) => {
     path.join(process.cwd(), 'USAGE.md')
   ];
   loadUsageDocsFrom(candidates);
+  watchUsage(candidates);
 
   return {
     capabilities: {
@@ -312,6 +334,7 @@ connection.onCompletion(({ textDocument, position }) => {
   const text = doc.getText();
   const offset = doc.offsetAt(position);
   const prefix = text.slice(Math.max(0, offset - 50), offset);
+  const before = text.slice(0, offset);
 
   const items: CompletionItem[] = [];
 
@@ -360,6 +383,7 @@ connection.onCompletion(({ textDocument, position }) => {
 
   // content()/partial() suggestions inside #{ ... }
   if (/#\{\s*[\w$]*$/.test(prefix)) {
+    // suggest function names
     items.push(
       { label: 'content', kind: CompletionItemKind.Function },
       { label: 'partial', kind: CompletionItemKind.Function },
@@ -367,6 +391,15 @@ connection.onCompletion(({ textDocument, position }) => {
       { label: 'chunkStart', kind: CompletionItemKind.Function },
       { label: 'chunkEnd', kind: CompletionItemKind.Function }
     );
+    // suggest known block/slot names inside string literal argument
+    const argPrefix = before.match(/content\(\s*(["'`])([^"'`]*)$/) || before.match(/slot\(\s*(["'`])([^"'`]*)$/);
+    if (argPrefix) {
+      const ast = parseContent(text) as any;
+      const blocks = Object.keys(ast?.blocks || {});
+      for (const name of blocks) {
+        items.push({ label: name, kind: CompletionItemKind.Text });
+      }
+    }
   }
 
   return items;
@@ -395,6 +428,10 @@ connection.onHover(({ textDocument, position }) => {
     if (dir) {
       const info = usageDocs.directives[dir[1]];
       if (info) return { contents: { kind: 'markdown', value: info + "\n\nSee also: USAGE.md" } };
+    }
+    // Show block/slot declaration hover
+    if (hit.type === 'blockStart' || hit.type === 'slotStart') {
+      return { contents: { kind: 'markdown', value: `Declared ${hit.type === 'blockStart' ? 'block' : 'slot'}` } };
     }
     return { contents: { kind: 'plaintext', value: `fte.js: ${hit.type}` } };
   }
