@@ -868,12 +868,22 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
   let templateIndentLevel = 0;
   const openTpl = /<#-?\s*(block|slot)\s+(["'`])([^"'`]+?)\1\s*:\s*-?#>/;
   const endTpl = /<#-?\s*end\s*-?#>/;
-  const appendWithIndent = (chunk: string) => {
+  const appendTextNoIndent = (chunk: string) => {
+    // Do not modify text segments at all to avoid changing output
     const lines = chunk.split(/\r?\n/);
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
       if (i < lines.length - 1 || line.length > 0) {
-        result.push((templateIndentLevel > 0 ? ' '.repeat(templateIndentLevel * indentSize) : '') + line);
+        result.push(line);
+      }
+    }
+  };
+  const appendCodeWithIndent = (chunk: string) => {
+    const lines = chunk.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (i < lines.length - 1 || line.length > 0) {
+        result.push((templateIndentLevel > 0 ? ' '.repeat(templateIndentLevel * indentSize) : '') + line.trimStart());
       }
     }
   };
@@ -886,13 +896,20 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
       const pOpts = getPrettierOpts();
       if (pOpts) {
         const pretty: string = prettier.format(rawText, pOpts) as unknown as string;
-        formatted = (pretty || rawText).replace(/[\s\u00A0]+$/,'');
-        formatted = limitBlankLines(formatted);
+        // safety: only accept if line count stays the same and only leading/trailing spaces changed
+        const sameLines = rawText.split(/\r?\n/).length === pretty.split(/\r?\n/).length;
+        if (sameLines) {
+          formatted = (pretty || rawText).replace(/[\s\u00A0]+$/,'');
+          formatted = limitBlankLines(formatted);
+        } else {
+          formatted = rawText; // avoid injecting newlines into output
+        }
       }
     } catch {
       // fallback
     }
-    appendWithIndent(formatted);
+    // Do not indent text segments
+    appendTextNoIndent(formatted);
     textChunk = [];
   };
 
@@ -909,7 +926,8 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
       if (isTplEnd) {
         templateIndentLevel = Math.max(0, templateIndentLevel - 1);
       }
-      appendWithIndent(raw.trimStart());
+      // Indent only template code lines for readability; does not affect output
+      appendCodeWithIndent(raw);
       const opensTpl = openTpl.test(rtrim) && !endTpl.test(rtrim);
       if (opensTpl) templateIndentLevel += 1;
     }
