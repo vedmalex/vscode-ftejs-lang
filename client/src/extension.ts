@@ -114,7 +114,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const tpl = `<#@ context 'm' #>\nexport class ${className} {\n${body}\n}\n`;
       insert(tpl);
     }),
-    // Static preview of chunks: naive split between chunkStart/chunkEnd markers
+    // Static preview of chunks
     vscode.commands.registerCommand('ftejs.preview.chunks', async () => {
       const editor = vscode.window.activeTextEditor; if (!editor) return;
       const txt = editor.document.getText();
@@ -131,6 +131,32 @@ export async function activate(context: vscode.ExtensionContext) {
       const html = [`<h3>Detected chunks (static)</h3>`].concat(chunks.map(c => `<h4>${c.name}</h4><pre>${escapeHtml(txt.slice(c.start, c.end))}</pre>`)).join('\n');
       panel.webview.html = `<!doctype html><html><body>${html}</body></html>`;
       function escapeHtml(s: string) { return s.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m] as string)); }
+    }),
+    // Live preview using fte.js-standalone
+    vscode.commands.registerCommand('ftejs.preview.chunksLive', async () => {
+      const editor = vscode.window.activeTextEditor; if (!editor) return;
+      const fsPath = editor.document.uri.fsPath;
+      try {
+        const fte = require('fte.js-standalone');
+        const Factory = fte.Factory || fte.default?.Factory || fte;
+        const factory = new Factory({ root: [path.dirname(fsPath)], ext: ['.njs','.nhtml','.nts'], watch: false, preload: true });
+        const name = path.basename(fsPath);
+        const res = await factory.run({ title: 'Preview', items: ['A','B'] }, name);
+        // res may be string or chunks; present generically
+        const panel = vscode.window.createWebviewPanel('ftejsPreviewLive', 'fte.js Chunks Preview (Live)', vscode.ViewColumn.Beside, { enableScripts: false });
+        let html = `<h3>Result</h3>`;
+        if (Array.isArray(res)) {
+          html += res.map((c: any) => `<h4>${escapeHtml(c.name)}</h4><pre>${escapeHtml(Array.isArray(c.content)? c.content.join('\n') : String(c.content))}</pre>`).join('');
+        } else if (typeof res === 'object') {
+          html += Object.keys(res).map((k: string) => `<h4>${escapeHtml(k)}</h4><pre>${escapeHtml(String((res as any)[k]))}</pre>`).join('');
+        } else {
+          html += `<pre>${escapeHtml(String(res))}</pre>`;
+        }
+        panel.webview.html = `<!doctype html><html><body>${html}</body></html>`;
+        function escapeHtml(s: string) { return s.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m] as string)); }
+      } catch (e) {
+        vscode.window.showErrorMessage(`Live preview failed: ${e}`);
+      }
     })
   );
 }

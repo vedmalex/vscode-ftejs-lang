@@ -215,6 +215,7 @@
     "vscode-languageclient": "^9.0.1",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.11",
-    "fte.js-parser": "^3.0.0-rc.12"
+    "fte.js-parser": "^3.0.0-rc.12",
+    "fte.js-standalone": "^3.0.0-rc.12"
   }
 }
