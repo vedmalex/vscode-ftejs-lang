@@ -33,6 +33,12 @@ const html = fte`<div>
 - Hover, diagnostics (parse/structure/directives), go-to-definition/references for blocks
 - Formatting: language-aware (Prettier for text segments, JS/TS rules for template code), on-type end insertion, code actions (close open blocks, fix unmatched end)
 
+### Commands
+- Scaffolds: Insert Block, Insert Slot, Insert chunkStart/chunkEnd
+- Partials: Create Partial and Insert Call
+- Generators: Generate .nhtml Page, Generate .nts Class
+- Preview: Preview Chunks (static), Preview Chunks (Live)
+
 ### Configuration
 - `ftejs.parserPath` (string, optional): absolute path to local `fte.js-parser` when developing locally. If empty, the server attempts to resolve the npm package `fte.js-parser` automatically. The extension depends on `fte.js-parser` and installs it by default.
 
@@ -50,9 +56,27 @@ const html = fte`<div>
 - Quick reload: Cmd/Ctrl+R in the Extension Host window.
 - Workspaces: this repo uses npm workspaces for `client/` and `server/`. Build both with `npm run compile`.
 
+### Debugging
+- Client (extension): F5 → Extension Host. Тестируйте команды/подсветку в новом окне.
+- Server (LSP): сервер стартует с `--inspect=6009`. Подключитесь Attach to Node Process (порт 6009) для отладки.
+- Логи LSP: Output → fte.js Language Server.
+- Тесты: `npm test` (Jest smoke‑tests в `server/`).
+
 ### Documentation for users and agents
 - Runtime usage and API: `USAGE.md` (synced from the main fte2 project). Update with `npm run docs:sync-usage` (set `FTE2_USAGE` if needed).
 - AI authoring guide: `agents.md`.
+
+### Publishing
+- Package VSIX:
+  - `npm run compile`
+  - `npx vsce package --no-yarn` → `.vsix` в корне
+- Publish to VS Code Marketplace:
+  - Получите `VSCE_PAT` и выполните `vsce login`
+  - `npm run publish:vsce`
+- Publish to Open VSX: `npm run publish:openvsx` (требуется `OVSX_TOKEN`)
+
+### CI
+- GitHub Actions workflow `.github/workflows/ci.yml` билдит проект и собирает VSIX на каждый push/PR в `main`.
 
 ### Release
 - Bump `version` in `package.json`.
