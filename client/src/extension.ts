@@ -113,6 +113,24 @@ export async function activate(context: vscode.ExtensionContext) {
       const body = parsed.map(([n,t]) => `  public ${n}: ${t};`).join('\n');
       const tpl = `<#@ context 'm' #>\nexport class ${className} {\n${body}\n}\n`;
       insert(tpl);
+    }),
+    // Static preview of chunks: naive split between chunkStart/chunkEnd markers
+    vscode.commands.registerCommand('ftejs.preview.chunks', async () => {
+      const editor = vscode.window.activeTextEditor; if (!editor) return;
+      const txt = editor.document.getText();
+      const starts = [...txt.matchAll(/<#-\s*chunkStart\(\s*(["'`])([^"'`]+)\1\s*\);\s*-#>/g)];
+      const chunks: { name: string; start: number; end: number }[] = [];
+      for (let i = 0; i < starts.length; i++) {
+        const name = starts[i][2];
+        const from = starts[i].index ?? 0;
+        const next = i + 1 < starts.length ? (starts[i + 1].index ?? txt.length) : txt.length;
+        const endIdx = txt.indexOf('<# chunkEnd(); -#>', from) >= 0 ? txt.indexOf('<# chunkEnd(); -#>', from) : next;
+        chunks.push({ name, start: from, end: endIdx >= 0 ? endIdx : next });
+      }
+      const panel = vscode.window.createWebviewPanel('ftejsPreview', 'fte.js Chunks Preview', vscode.ViewColumn.Beside, { enableScripts: false });
+      const html = [`<h3>Detected chunks (static)</h3>`].concat(chunks.map(c => `<h4>${c.name}</h4><pre>${escapeHtml(txt.slice(c.start, c.end))}</pre>`)).join('\n');
+      panel.webview.html = `<!doctype html><html><body>${html}</body></html>`;
+      function escapeHtml(s: string) { return s.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m] as string)); }
     })
   );
 }
