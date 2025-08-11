@@ -142,7 +142,6 @@ export async function activate(context: vscode.ExtensionContext) {
         const factory = new Factory({ root: [path.dirname(fsPath)], ext: ['.njs','.nhtml','.nts'], watch: false, preload: true });
         const name = path.basename(fsPath);
         const res = await factory.run({ title: 'Preview', items: ['A','B'] }, name);
-        // res may be string or chunks; present generically
         const panel = vscode.window.createWebviewPanel('ftejsPreviewLive', 'fte.js Chunks Preview (Live)', vscode.ViewColumn.Beside, { enableScripts: false });
         let html = `<h3>Result</h3>`;
         if (Array.isArray(res)) {
@@ -156,6 +155,31 @@ export async function activate(context: vscode.ExtensionContext) {
         function escapeHtml(s: string) { return s.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m] as string)); }
       } catch (e) {
         vscode.window.showErrorMessage(`Live preview failed: ${e}`);
+      }
+    }),
+    // Convert file to template
+    vscode.commands.registerCommand('ftejs.convertToTemplate', async () => {
+      const editor = vscode.window.activeTextEditor; if (!editor) return;
+      const src = editor.document.uri.fsPath;
+      const ext = path.extname(src).toLowerCase();
+      const map: Record<string,string> = { '.ts':'.nts', '.tsx':'.nts', '.js':'.njs', '.jsx':'.njs', '.md':'.nmd', '.html':'.nhtml', '.htm':'.nhtml' };
+      const dstExt = map[ext];
+      if (!dstExt) { vscode.window.showWarningMessage('Unsupported source type for conversion'); return; }
+      const dst = src.slice(0, -ext.length) + dstExt;
+      const dstUri = vscode.Uri.file(dst);
+      try {
+        const buf = new TextEncoder().encode(editor.document.getText());
+        await vscode.workspace.fs.writeFile(dstUri, buf);
+        const doc = await vscode.workspace.openTextDocument(dstUri);
+        await vscode.window.showTextDocument(doc, { preview: false });
+        if (doc.getText().trim().length === 0) {
+          const scaffold = dstExt === '.nhtml' ? `<#@ context 'data' #>\n` : `<#@ context 'context' #>\n`;
+          const e2 = new vscode.WorkspaceEdit();
+          e2.insert(dstUri, new vscode.Position(0,0), scaffold);
+          await vscode.workspace.applyEdit(e2);
+        }
+      } catch (e) {
+        vscode.window.showErrorMessage(`Failed to convert file: ${e}`);
       }
     })
   );

@@ -43,7 +43,8 @@
     "onLanguage:template-js",
     "onLanguage:template-html",
     "onLanguage:template-typescript",
-    "onLanguage:template-markdown"
+    "onLanguage:template-markdown",
+    "onCommand:ftejs.convertToTemplate"
   ],
   "categories": [
     "Programming Languages"
@@ -84,7 +85,8 @@
       { "command": "ftejs.scaffold.partial", "title": "fte.js: Create Partial and Insert Call" },
       { "command": "ftejs.generator.nhtmlPage", "title": "fte.js: Generate .nhtml Page" },
       { "command": "ftejs.generator.ntsClass", "title": "fte.js: Generate .nts Class" },
-      { "command": "ftejs.preview.chunks", "title": "fte.js: Preview Chunks (static)" }
+      { "command": "ftejs.preview.chunks", "title": "fte.js: Preview Chunks (static)" },
+      { "command": "ftejs.convertToTemplate", "title": "fte.js: Create template from this file" }
     ],
     "menus": {
       "editor/context": [
@@ -94,7 +96,8 @@
         { "command": "ftejs.scaffold.partial", "group": "navigation@13", "when": "editorLangId =~ /template-/" },
         { "command": "ftejs.generator.nhtmlPage", "group": "navigation@20", "when": "editorLangId =~ /template-/" },
         { "command": "ftejs.generator.ntsClass", "group": "navigation@21", "when": "editorLangId =~ /template-/" },
-        { "command": "ftejs.preview.chunks", "group": "navigation@30", "when": "editorLangId =~ /template-/" }
+        { "command": "ftejs.preview.chunks", "group": "navigation@30", "when": "editorLangId =~ /template-/" },
+        { "command": "ftejs.convertToTemplate", "group": "3_modification@15", "when": "editorLangId == markdown || editorLangId == html || editorLangId == typescript || editorLangId == javascript || editorLangId == typescriptreact || editorLangId == javascriptreact" }
       ]
     },
     "languages": [
