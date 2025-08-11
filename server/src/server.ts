@@ -54,7 +54,7 @@ const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 let parser: any | undefined;
 let usageDocs: { functions: Record<string, string>; directives: Record<string, string> } = { functions: {}, directives: {} };
 let usageWatchers: Array<fs.FSWatcher> = [];
-let serverSettings: { format?: { textFormatter?: boolean; keepBlankLines?: number }, docs?: { usagePath?: string } } = { format: { textFormatter: true, keepBlankLines: 1 }, docs: {} };
+let serverSettings: { format?: { textFormatter?: boolean; codeFormatter?: boolean; keepBlankLines?: number }, docs?: { usagePath?: string } } = { format: { textFormatter: true, codeFormatter: true, keepBlankLines: 1 }, docs: {} };
 let workspaceRoots: string[] = [];
 const prettierConfigCache: Record<string, any> = {};
 
@@ -378,6 +378,33 @@ function computeDiagnostics(doc: TextDocument): Diagnostic[] {
   } catch {}
 
   // Directive validation
+  // Trim hints: suggest using <#- or -#> when only whitespace is around
+  try {
+    const leftRx = /(\n?)([ \t]*)<#/g;
+    let ml: RegExpExecArray | null;
+    while ((ml = leftRx.exec(text))) {
+      const dash = text.slice(ml.index, ml.index + 3) === '<#-';
+      if (dash) continue;
+      const prev = text[ml.index - 1] || '\n';
+      const atLineStart = prev === '\n' || ml.index === 0;
+      if (atLineStart && ml[2].length >= 0) {
+        const start = doc.positionAt(ml.index);
+        const end = doc.positionAt(ml.index + 2);
+        diags.push({ severity: DiagnosticSeverity.Hint, range: { start, end }, message: "Consider '<#-' to trim leading whitespace", source: 'fte.js' });
+      }
+    }
+    const rightRx = /#>([ \t]*)(\r?\n)/g;
+    let mr: RegExpExecArray | null;
+    while ((mr = rightRx.exec(text))) {
+      const prevTwo = text.slice(mr.index - 2, mr.index);
+      const dash = prevTwo === '-#';
+      if (dash) continue;
+      const start = doc.positionAt(mr.index);
+      const end = doc.positionAt(mr.index + 2);
+      diags.push({ severity: DiagnosticSeverity.Hint, range: { start, end }, message: "Consider '-#>' to trim trailing whitespace", source: 'fte.js' });
+    }
+  } catch {}
+
   // TODO: cross-file validation (P1): unknown aliases in `partial` or unresolvable paths
   const dirRe = /<#@([\s\S]*?)#>/g;
   let d: RegExpExecArray | null;
@@ -883,7 +910,8 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
       if (i < lines.length - 1 || line.length > 0) {
-        result.push((templateIndentLevel > 0 ? ' '.repeat(templateIndentLevel * indentSize) : '') + line.trimStart());
+        const base = serverSettings?.format?.codeFormatter === false ? line : line.trimStart();
+        result.push((templateIndentLevel > 0 ? ' '.repeat(templateIndentLevel * indentSize) : '') + base);
       }
     }
   };

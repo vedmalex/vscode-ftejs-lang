@@ -71,6 +71,11 @@
           "default": 1,
           "description": "Maximum consecutive blank lines to keep in formatted output (use -1 to disable)"
         },
+        "ftejs.format.codeFormatter": {
+          "type": "boolean",
+          "default": true,
+          "description": "Indent template code blocks and align control structures (does not change generated text)"
+        },
         "ftejs.docs.usagePath": {
           "type": "string",
           "default": "",
