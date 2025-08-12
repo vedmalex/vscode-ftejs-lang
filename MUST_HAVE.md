@@ -7,6 +7,8 @@ Non-negotiable items to complete before wider release/adoption.
 - [x] Option to disable text-segment formatting (fallback to indentation only) **UPDATED (2025-08-11)**: Text formatter now enabled by default with proper HTML whitespace sensitivity.
 - [x] Preserve blank lines and avoid formatting inside Markdown code fences
 - [x] Never introduce extra output characters: strictly separate formatting of template code and template text; avoid injecting newlines/spaces into generated output; follow `agents.md` rules
+- [x] **NEW (2025-08-12)**: Structural tags must start on new lines - `<# block/slot/directive/end` tags automatically get newline prefix when inline with text to improve readability and consistency
+- [x] **NEW (2025-08-12)**: Block isolation formatting - `<# block/slot` and `<# end #>` tags must be alone on their lines with visual separation (blank lines) to clearly delineate block boundaries
 
  - Strict separation of formatting responsibilities (NEW):
    - [x] Template instructions vs template text MUST be formatted separately.
@@ -17,7 +19,16 @@ Non-negotiable items to complete before wider release/adoption.
      4. [x] The inner content of template instructions MUST be formatted according to the embedded language rules (JS/TS/HTML/Markdown), keeping delimiters intact.
    - [x] Template text (final output): MUST be formatted according to the target language rules configured for the region, without altering semantic output; if formatting would change output (e.g., inject newlines), it MUST be skipped.
    - [x] Expressions inside `#{...}` and `!{...}` should be treated as part of the resulting text, not formatted as separate JS code.
-   - [x] Directive lines (`<#@ ... #>`) should be automatically placed at the top of the template or block, with no indentation. **IMPLEMENTED (2025-08-11)**: Directives are now automatically reordered to the top during formatting.
+    - Code/Text dual extraction and preview parity (NEW):
+      - [ ] Before formatting, the system MUST build two synchronized views from AST tokens:
+        - [ ] Template Code View: source language (HTML/MD/TSX/...) where template instructions are masked using host-language comments and interpolations become host-appropriate placeholders (e.g., comments for `<# ... #>`, string/text placeholders for `#{...}`/`!{...}`).
+        - [ ] Instruction Code View: executable instruction stream where all text segments are converted to string literals and concatenations; preserves evaluation boundaries for insertions.
+      - [ ] Both views MUST preserve character spans mapping back to the original template (source map) for diagnostics, selection sync, and preview hovers.
+      - [ ] The formatter MUST operate separately on each view (host-language formatter for Code View; minimal normalization for Instruction View) and reconcile changes without altering emitted output semantics.
+      - [ ] Preview (code/template/chunks) MUST reuse the same transformation logic to ensure parity between editing and preview.
+      - [ ] Provide language adapters for comment styles and string literal styles per host language: HTML/Markdown (`<!-- -->`), JS/TS (`//`, `/* */`), CSS (`/* */`), etc.
+  - [ ] Directive lines (`<#@ ... #>`) should be automatically placed at the top of the template or block, with no indentation.
+    - Decision (2025-08-12): This requirement is cancelled. Directives are preserved in their original positions and indentation; formatter no longer reorders them.
    - [x] When formatting, do not add a newline before a `<# ... #>` tag if it's already at the beginning of a line.
    - [x] The content inside `<# block ... #>` should not have an additional indent, as the final indent is determined by the insertion point.
 
@@ -113,3 +124,8 @@ Non-negotiable items to complete before wider release/adoption.
 
 16) Dependency Management (NEW)
 - [x] The `fte.js-parser` should be installed with the extension by default, so that the user does not need a global installation.
+
+17) Code Quality and Performance (NEW)
+- [ ] External linter support for template type files (njs -> js, ts -> nts, etc.) needs implementation
+- [ ] Performance optimization required for large template files
+- [ ] Security validation needed for user input in template expressions

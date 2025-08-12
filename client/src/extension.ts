@@ -1,6 +1,12 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
+import * as prettier from 'prettier';
+import * as prettierPluginsHtml from 'prettier/plugins/html';
+import * as prettierPluginsBabel from 'prettier/plugins/babel';
+// Shared mapping for template extensions
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const sharedExt = require('../../shared/template-extensions.js');
 
 let client: LanguageClient | undefined;
 let trimDecorationType: vscode.TextEditorDecorationType | undefined;
@@ -108,7 +114,7 @@ export async function activate(context: vscode.ExtensionContext) {
     ],
     synchronize: {
       configurationSection: 'ftejs',
-      fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{njs,nhtml,nts,nmd}')
+      fileEvents: vscode.workspace.createFileSystemWatcher(`**/*.{${sharedExt.templateExtensionsAll.map((e:string)=>e.slice(1)).join(',')}}`)
     }
   };
 
@@ -161,6 +167,28 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       } catch (e) {
         vscode.window.showErrorMessage(`Failed to create partial: ${e}`);
+      }
+    }),
+    // Preview: Dual Extraction (Template Code / Instruction Code)
+    vscode.commands.registerCommand('ftejs.preview.dualExtraction', async () => {
+      const editor = vscode.window.activeTextEditor; if (!editor || !client) return;
+      const uri = editor.document.uri.toString();
+      try {
+        const lang = editor.document.languageId === 'template-html' ? 'html'
+          : editor.document.languageId === 'template-markdown' ? 'markdown'
+          : editor.document.languageId === 'template-typescript' ? 'typescript' : 'javascript';
+        const views = await client.sendRequest<any>('ftejs/extractViews', { uri, hostLanguage: lang });
+        const panel = vscode.window.createWebviewPanel('ftejsDualPreview', 'fte.js Dual Extraction Preview', vscode.ViewColumn.Beside, { enableScripts: false });
+        const escapeHtml = (s: string) => s.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m] as string));
+        const html = `<!doctype html><html><body>
+          <h3>Template Code View</h3>
+          <pre>${escapeHtml(views.templateCode || '')}</pre>
+          <h3>Instruction Code View</h3>
+          <pre>${escapeHtml(views.instructionCode || '')}</pre>
+        </body></html>`;
+        panel.webview.html = html;
+      } catch (e) {
+        vscode.window.showErrorMessage(`Dual extraction preview failed: ${e}`);
       }
     }),
     // Toggle trimmed-whitespace visualizer
@@ -242,7 +270,7 @@ export async function activate(context: vscode.ExtensionContext) {
       try {
         const fte = require('fte.js-standalone');
         const Factory = fte.Factory || fte.default?.Factory || fte;
-        const factory = new Factory({ root: [path.dirname(fsPath)], ext: ['.njs','.nhtml','.nts'], watch: false, preload: true });
+      const factory = new Factory({ root: [path.dirname(fsPath)], ext: sharedExt.templateExtensionsFactory, watch: false, preload: true });
         const name = path.basename(fsPath);
         const res = await factory.run({ title: 'Preview', items: ['A','B'] }, name);
         const panel = vscode.window.createWebviewPanel('ftejsPreviewLive', 'fte.js Chunks Preview (Live)', vscode.ViewColumn.Beside, { enableScripts: false });
@@ -260,6 +288,35 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage(`Live preview failed: ${e}`);
       }
     }),
+    // Debug: inspect syntax scopes at current position
+    vscode.commands.registerCommand('ftejs.debug.syntaxScopes', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) { return; }
+      const position = editor.selection.active;
+      // Try to fetch semantic tokens legend or tokens; fallback to token inspection message
+      let scopes: string[] = [];
+      try {
+        const res = await vscode.commands.executeCommand<any>(
+          'vscode.provideDocumentSemanticTokensLegend',
+          editor.document
+        );
+        if (res && Array.isArray(res.tokenTypes)) {
+          scopes = res.tokenTypes as string[];
+        }
+      } catch {}
+      const panel = vscode.window.createWebviewPanel(
+        'ftejsSyntaxDebug',
+        'Syntax Scopes at Position',
+        vscode.ViewColumn.Beside,
+        {}
+      );
+      panel.webview.html = `<!doctype html><html><body>
+        <h3>Position: Line ${position.line + 1}, Column ${position.character + 1}</h3>
+        <h4>Scopes:</h4>
+        <ul>${(scopes || []).map((s) => `<li>${s}</li>`).join('')}</ul>
+        <p>Tip: You can also use the VSCode command <b>Developer: Inspect Editor Tokens and Scopes</b>.</p>
+      </body></html>`;
+    }),
     // Convert file to template (MUST_HAVE.md point 8)
     vscode.commands.registerCommand('ftejs.convertToTemplate', async () => {
       const editor = vscode.window.activeTextEditor; 
@@ -274,15 +331,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const dirName = path.dirname(src);
       
       // Template extension mapping
-      const map: Record<string,string> = { 
-        '.ts': '.nts', 
-        '.tsx': '.nts', 
-        '.js': '.njs', 
-        '.jsx': '.njs', 
-        '.md': '.nmd', 
-        '.html': '.nhtml', 
-        '.htm': '.nhtml' 
-      };
+      const map: Record<string,string> = sharedExt.hostToTemplateMap;
       
       const dstExt = map[ext];
       if (!dstExt) { 
@@ -367,6 +416,38 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Initial update
   scheduleUpdateTrimDecorations(vscode.window.activeTextEditor);
+
+  // Client-side formatter disabled to avoid conflicts with LSP server formatter
+  // The LSP server handles all template formatting via formatWithSourceWalking()
+  // context.subscriptions.push(
+  //   vscode.languages.registerDocumentFormattingEditProvider(['template-html', 'template-js'], {
+  //     async provideDocumentFormattingEdits(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
+  //       const text = document.getText();
+  //       const filePath = document.uri.fsPath;
+  //
+  //       // Get Prettier configuration for the current file
+  //       const options = await prettier.resolveConfig(filePath, { editorconfig: true });
+  //
+  //       try {
+  //         const formattedText = await prettier.format(text, {
+  //           ...options,
+  //           // Determine parser based on language ID
+  //           parser: document.languageId === 'template-html' ? 'html' : 'babel', // Use 'babel' for JS-like templates
+  //           plugins: [
+  //             prettierPluginsHtml,
+  //             prettierPluginsBabel
+  //           ], // HTML plugin is still needed for embedded HTML if any
+  //           filepath: filePath, // This is important for Prettier to pick up correct parser and plugins
+  //         });
+  //
+  //         return [vscode.TextEdit.replace(new vscode.Range(document.positionAt(0), document.positionAt(text.length)), formattedText)];
+  //       } catch (e: any) {
+  //         vscode.window.showErrorMessage(`Failed to format document: ${e.message}`);
+  //         return [];
+  //       }
+  //     }
+  //   })
+  // );
 }
 
 export function deactivate(): Thenable<void> | undefined {

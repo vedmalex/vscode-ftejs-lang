@@ -1,8 +1,66 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.computeOpenBlocksFromAst = computeOpenBlocksFromAst;
 exports.buildEndTagFor = buildEndTagFor;
 exports.computePairsFromAst = computePairsFromAst;
+exports.walkAstNodes = walkAstNodes;
+exports.getTemplatePathVariants = getTemplatePathVariants;
+exports.posFromOffset = posFromOffset;
+exports.getExtendTargetFrom = getExtendTargetFrom;
+exports.resolveTemplatePath = resolveTemplatePath;
+exports.resolveTemplateRel = resolveTemplateRel;
+exports.isTemplateTagLine = isTemplateTagLine;
+exports.stripStringsAndComments = stripStringsAndComments;
+exports.computeJsCodeDelta = computeJsCodeDelta;
+exports.collectAllASTSegments = collectAllASTSegments;
+exports.extractBlockAndSlotSymbols = extractBlockAndSlotSymbols;
+exports.computeOpenBlocksFromText = computeOpenBlocksFromText;
+exports.validateStructureAndCollectErrors = validateStructureAndCollectErrors;
+exports.collectUnknownContentRefs = collectUnknownContentRefs;
+exports.collectUnresolvedPartials = collectUnresolvedPartials;
+exports.collectDuplicateDeclarations = collectDuplicateDeclarations;
+exports.collectTrimWhitespaceHints = collectTrimWhitespaceHints;
+exports.validateDirectivesInText = validateDirectivesInText;
+exports.collectExtendParentIssues = collectExtendParentIssues;
+exports.collectUnknownContentAgainstParent = collectUnknownContentAgainstParent;
+exports.collectChildBlocksMissingInParent = collectChildBlocksMissingInParent;
+const node_1 = require("vscode-languageserver/node");
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+const url = __importStar(require("url"));
 function computeOpenBlocksFromAst(nodes, upTo) {
     const limit = typeof upTo === 'number' ? upTo : Number.POSITIVE_INFINITY;
     const stack = [];
@@ -51,4 +109,552 @@ function computePairsFromAst(nodes) {
         pairs.push({ open });
     }
     return pairs;
+}
+// AST traversal utility to eliminate duplication across server.ts
+function walkAstNodes(ast, callback) {
+    if (!ast || !Array.isArray(ast.main))
+        return;
+    for (const node of ast.main) {
+        const result = callback(node);
+        if (result === false)
+            break; // Allow early termination
+    }
+}
+// Template path variants utility to eliminate 4x duplication
+function getTemplatePathVariants(basePath) {
+    // Defer to shared mapping to ensure client/server parity
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const shared = require('../../shared/template-extensions.js');
+        const variants = shared.getTemplatePathVariants?.(basePath);
+        if (Array.isArray(variants))
+            return variants;
+    }
+    catch { }
+    // Fallback to built-in list if shared module is unavailable
+    return [basePath, basePath + '.njs', basePath + '.nhtml', basePath + '.nts'];
+}
+// Compute LSP Position from character offset
+function posFromOffset(text, offset) {
+    let line = 0;
+    let col = 0;
+    for (let i = 0; i < offset && i < text.length; i++) {
+        const ch = text.charCodeAt(i);
+        if (ch === 10 /*\n*/) {
+            line++;
+            col = 0;
+        }
+        else {
+            col++;
+        }
+    }
+    return node_1.Position.create(line, col);
+}
+// Resolve parent template path from <#@ extend ... #> in given text
+function getExtendTargetFrom(text, docUri, parseContent) {
+    const ast = parseContent(text);
+    if (ast && Array.isArray(ast.main)) {
+        for (const node of ast.main) {
+            if (node.type === 'directive' && node.content) {
+                const content = String(node.content).trim();
+                if (content.startsWith('extend')) {
+                    const match = content.match(/extend\s*(?:\(\s*(["'`])([^"'`]+)\1\s*\)|\s+(["'`])([^"'`]+)\3)/);
+                    const rel = (match?.[2] || match?.[4])?.trim();
+                    if (rel)
+                        return resolveTemplatePath(rel, docUri);
+                }
+            }
+        }
+    }
+    const m = text.match(/<#@\s*extend\s*(?:\(\s*(["'`])([^"'`]+)\1\s*\)|\s*(["'`])([^"'`]+)\3)\s*#>/);
+    const rel = (m?.[2] || m?.[4])?.trim();
+    if (!rel)
+        return null;
+    return resolveTemplatePath(rel, docUri);
+}
+function resolveTemplatePath(rel, docUri) {
+    try {
+        const currentDir = docUri && docUri.startsWith('file:') ? path.dirname(url.fileURLToPath(docUri)) : process.cwd();
+        const workspaceRoots = []; // caller may prefer passing explicit bases
+        const bases = [currentDir, ...workspaceRoots, ...workspaceRoots.map(r => path.join(r, 'templates'))];
+        for (const base of bases) {
+            const p = path.isAbsolute(rel) ? rel : path.join(base, rel);
+            const variants = getTemplatePathVariants(p);
+            for (const v of variants) {
+                if (fs.existsSync(v))
+                    return v;
+            }
+        }
+    }
+    catch { }
+    return null;
+}
+// Resolve a template relative to current doc and workspace roots
+function resolveTemplateRel(rel, docUri, workspaceRoots) {
+    try {
+        const currentDir = docUri && docUri.startsWith('file:') ? path.dirname(url.fileURLToPath(docUri)) : process.cwd();
+        const bases = [currentDir, ...workspaceRoots, ...workspaceRoots.map(r => path.join(r, 'templates'))];
+        for (const base of bases) {
+            const p = path.isAbsolute(rel) ? rel : path.join(base, rel);
+            const variants = getTemplatePathVariants(p);
+            for (const v of variants) {
+                if (fs.existsSync(v))
+                    return v;
+            }
+        }
+    }
+    catch { }
+    return null;
+}
+// Detect if a line contains template delimiters that should not be treated as plain JS/HTML for indent purposes
+function isTemplateTagLine(line) {
+    return /<#|#>|\#\{|!\{|<%|%>/.test(line);
+}
+// Remove strings and comments for lightweight JS structure analysis
+function stripStringsAndComments(line) {
+    let res = line.replace(/\/\/.*$/, '');
+    res = res.replace(/'(?:\\.|[^'\\])*'/g, "'");
+    res = res.replace(/"(?:\\.|[^"\\])*"/g, '"');
+    res = res.replace(/`(?:\\.|[^`\\])*`/g, '`');
+    return res;
+}
+// Compute JS indent delta and whether to dedent first for a line
+function computeJsCodeDelta(line) {
+    const trimmed = line.trimStart();
+    let dedentFirst = /^(}|\)|\]|case\b|default\b)/.test(trimmed) ? 1 : 0;
+    if (/^default\b/.test(trimmed)) {
+        dedentFirst = 1;
+    }
+    const safe = stripStringsAndComments(line);
+    const opens = (safe.match(/[\{\(\[]/g) || []).length;
+    const closes = (safe.match(/[\}\)\]]/g) || []).length;
+    const delta = opens - closes;
+    return { dedentFirst, delta };
+}
+// Collect all segments from AST in document order for formatting fallback or reconstruction
+function collectAllASTSegments(ast) {
+    if (!ast)
+        return [];
+    const allSegments = [];
+    const segmentsByPos = [];
+    for (const item of ast.main || []) {
+        segmentsByPos.push({ pos: item.pos || 0, segment: item, source: 'main' });
+    }
+    for (const [blockName, block] of Object.entries(ast.blocks || {})) {
+        const blockContent = block.main || [];
+        if (blockContent.length > 0) {
+            const firstItem = blockContent[0];
+            const lastItem = blockContent[blockContent.length - 1];
+            const blockStartPos = Math.max(0, (firstItem.pos || 0) - 50);
+            segmentsByPos.push({
+                pos: blockStartPos,
+                segment: { type: 'blockStart', content: ` block '${blockName}' : `, start: '<#', end: '#>', pos: blockStartPos },
+                source: 'block-start'
+            });
+            for (const item of blockContent) {
+                segmentsByPos.push({ pos: item.pos || 0, segment: item, source: 'block-content' });
+            }
+            const blockEndPos = (lastItem.pos || 0) + (lastItem.content?.length || 0) + 10;
+            segmentsByPos.push({
+                pos: blockEndPos,
+                segment: { type: 'blockEnd', content: ' end ', start: '<#', end: '#>', pos: blockEndPos },
+                source: 'block-end'
+            });
+        }
+    }
+    for (const [slotName, slot] of Object.entries(ast.slots || {})) {
+        const slotContent = slot.main || [];
+        if (slotContent.length > 0) {
+            const firstItem = slotContent[0];
+            const lastItem = slotContent[slotContent.length - 1];
+            const slotStartPos = Math.max(0, (firstItem.pos || 0) - 50);
+            segmentsByPos.push({
+                pos: slotStartPos,
+                segment: { type: 'slotStart', content: ` slot '${slotName}' : `, start: '<#', end: '#>', pos: slotStartPos },
+                source: 'slot-start'
+            });
+            for (const item of slotContent) {
+                segmentsByPos.push({ pos: item.pos || 0, segment: item, source: 'slot-content' });
+            }
+            const slotEndPos = (lastItem.pos || 0) + (lastItem.content?.length || 0) + 10;
+            segmentsByPos.push({
+                pos: slotEndPos,
+                segment: { type: 'slotEnd', content: ' end ', start: '<#', end: '#>', pos: slotEndPos },
+                source: 'slot-end'
+            });
+        }
+    }
+    segmentsByPos.sort((a, b) => a.pos - b.pos);
+    return segmentsByPos.map(item => item.segment);
+}
+function extractBlockAndSlotSymbols(ast) {
+    const blocks = [];
+    const slots = [];
+    if (!ast)
+        return { blocks, slots };
+    for (const [name, block] of Object.entries(ast.blocks || {})) {
+        const first = block.main?.[0];
+        const last = block.main?.[block.main.length - 1];
+        if (first && last) {
+            blocks.push({ name: String(name), startPos: first.pos, endPos: last.pos + (last.content?.length || 0) });
+        }
+    }
+    for (const [name, slot] of Object.entries(ast.slots || {})) {
+        const first = slot.main?.[0];
+        const last = slot.main?.[slot.main.length - 1];
+        if (first && last) {
+            slots.push({ name: String(name), startPos: first.pos, endPos: last.pos + (last.content?.length || 0) });
+        }
+    }
+    return { blocks, slots };
+}
+// Compute open blocks from full text using provided parser
+function computeOpenBlocksFromText(text, upTo, parseContent) {
+    const ast = parseContent(text);
+    const limit = typeof upTo === 'number' ? upTo : text.length;
+    if (ast && Array.isArray(ast.main)) {
+        return computeOpenBlocksFromAst(ast.main, limit);
+    }
+    return [];
+}
+function validateStructureAndCollectErrors(text, parseContent) {
+    const ast = parseContent(text);
+    const unmatchedEnds = [];
+    const unclosed = [];
+    const parserErrors = [];
+    if (!ast || !Array.isArray(ast.main)) {
+        parserErrors.push({ pos: 0, message: 'Parse error' });
+        return { unmatchedEnds, unclosed, parserErrors };
+    }
+    const stack = [];
+    for (const n of ast.main) {
+        if (n.type === 'blockStart' || n.type === 'slotStart') {
+            const name = String(n.name || n.blockName || n.slotName || '');
+            stack.push({ name, pos: n.pos });
+        }
+        else if (n.type === 'end') {
+            if (stack.length === 0) {
+                const len = (text.slice(n.pos).match(/^<#-?\s*end\s*-?#>/)?.[0]?.length) || 5;
+                unmatchedEnds.push({ pos: n.pos, len });
+            }
+            else {
+                stack.pop();
+            }
+        }
+    }
+    for (const it of stack)
+        unclosed.push({ name: it.name, pos: it.pos });
+    if (Array.isArray(ast.errors)) {
+        for (const e of ast.errors)
+            parserErrors.push({ pos: e.pos || 0, message: e.message });
+    }
+    return { unmatchedEnds, unclosed, parserErrors };
+}
+// Scan AST-bound expr/code nodes to collect content('name') references that are unknown
+function collectUnknownContentRefs(text, docUri, parseContent, getExtendTargetFrom) {
+    const ast = parseContent(text);
+    const result = [];
+    const known = new Set(Object.keys(ast?.blocks || {}));
+    const parentAbs = getExtendTargetFrom(text, docUri);
+    if (parentAbs) {
+        try {
+            const src = fs.readFileSync(parentAbs, 'utf8');
+            const pAst = parseContent(src);
+            for (const k of Object.keys(pAst?.blocks || {}))
+                known.add(k);
+        }
+        catch { }
+    }
+    const contentRe = /content\(\s*(["'`])([^"'`]+)\1/g;
+    if (ast?.main) {
+        for (const n of ast.main) {
+            if (n && (n.type === 'expr' || n.type === 'code')) {
+                contentRe.lastIndex = 0;
+                let mm;
+                while ((mm = contentRe.exec(String(n.content || '')))) {
+                    const glob = (n.pos || 0) + (String(n.start || '').length) + mm.index;
+                    const name = mm[2];
+                    if (!known.has(name)) {
+                        result.push({ index: glob, length: mm[0].length, name });
+                    }
+                }
+            }
+        }
+    }
+    return result;
+}
+// Scan for partial(..., 'name') and verify target can be resolved using local requireAs and workspace index
+function collectUnresolvedPartials(text, docUri, parseContent, fileIndex, workspaceRoots) {
+    const ast = parseContent(text);
+    const res = [];
+    const partialRe = /partial\(\s*[^,]+,\s*(["'`])([^"'`]+)\1/g;
+    const dirRe = /<#@\s*requireAs\s*\(([^)]*)\)\s*#>/g;
+    const local = new Map();
+    let d;
+    while ((d = dirRe.exec(text))) {
+        const params = d[1].split(',').map((s) => s.trim().replace(/^["'`]|["'`]$/g, ''));
+        if (params.length >= 2)
+            local.set(params[1], params[0]);
+    }
+    if (ast?.main) {
+        for (const n of ast.main) {
+            if (n && (n.type === 'expr' || n.type === 'code')) {
+                partialRe.lastIndex = 0;
+                let mm;
+                while ((mm = partialRe.exec(String(n.content || '')))) {
+                    const glob = (n.pos || 0) + (String(n.start || '').length) + mm.index;
+                    const key = mm[2];
+                    let target = local.get(key) || key;
+                    if (target === key) {
+                        for (const [, info] of fileIndex) {
+                            const mapped = info.requireAs.get(key);
+                            if (mapped) {
+                                target = mapped;
+                                break;
+                            }
+                        }
+                    }
+                    const resolved = resolveTemplateRel(target, docUri, workspaceRoots);
+                    if (!resolved)
+                        res.push({ index: glob, length: mm[0].length, key });
+                }
+            }
+        }
+    }
+    return res;
+}
+// Duplicate block/slot declarations
+function collectDuplicateDeclarations(text, parseContent) {
+    const ast = parseContent(text);
+    const out = [];
+    const seen = {};
+    if (ast?.main) {
+        for (const n of ast.main) {
+            if (n.type === 'blockStart' || n.type === 'slotStart') {
+                const name = String(n.name || n.blockName || n.slotName || '');
+                seen[name] = (seen[name] || 0) + 1;
+                if (seen[name] > 1) {
+                    out.push({ name, pos: n.pos || 0, length: (String(n.start || '').length) || 1 });
+                }
+            }
+        }
+    }
+    return out;
+}
+// Whitespace trim hints around template tags
+function collectTrimWhitespaceHints(text) {
+    const hints = [];
+    try {
+        const leftRx = /(\n?)([ \t]*)<#/g;
+        let ml;
+        while ((ml = leftRx.exec(text))) {
+            // skip directives <#@
+            if (text.slice(ml.index, ml.index + 3) === '<#@')
+                continue;
+            // skip structural tags <# block|slot|end
+            const tail = text.slice(ml.index, ml.index + 12);
+            if (/^<#-?\s*(block|slot|end)\b/.test(tail))
+                continue;
+            const dash = text.slice(ml.index, ml.index + 3) === '<#-';
+            if (dash)
+                continue;
+            const prev = text[ml.index - 1] || '\n';
+            const atLineStart = prev === '\n' || ml.index === 0;
+            if (atLineStart && (ml[2]?.length ?? 0) >= 0) {
+                hints.push({ start: ml.index, end: ml.index + 2, kind: 'left' });
+            }
+        }
+        const rightRx = /#>([ \t]*)(\r?\n)/g;
+        let mr;
+        while ((mr = rightRx.exec(text))) {
+            // skip directive endings
+            const openPos = text.lastIndexOf('<#', mr.index);
+            if (openPos >= 0 && text[openPos + 2] === '@')
+                continue;
+            // skip structural tags <# block|slot|end ... #>
+            if (openPos >= 0) {
+                const tail = text.slice(openPos, openPos + 12);
+                if (/^<#-?\s*(block|slot|end)\b/.test(tail))
+                    continue;
+            }
+            const prevTwo = text.slice(mr.index - 2, mr.index);
+            const dash = prevTwo === '-#';
+            if (dash)
+                continue;
+            hints.push({ start: mr.index, end: mr.index + 2, kind: 'right' });
+        }
+    }
+    catch { }
+    return hints;
+}
+// Directive validation in text
+function validateDirectivesInText(text) {
+    const issues = [];
+    try {
+        const DIRECTIVES = [
+            'extend', 'context', 'alias', 'deindent', 'chunks', 'includeMainChunk', 'useHash',
+            'noContent', 'noSlots', 'noBlocks', 'noPartial', 'noOptions', 'promise', 'callback', 'requireAs', 'lang'
+        ];
+        const dirRe = /<#@([\s\S]*?)#>/g;
+        let d;
+        while ((d = dirRe.exec(text))) {
+            const content = d[1].trim();
+            const startPos = d.index;
+            const endPos = d.index + d[0].length;
+            const nameMatch = content.match(/^(\w+)/);
+            if (!nameMatch) {
+                issues.push({ start: startPos, end: endPos, message: 'Empty directive', severity: 'warning' });
+                continue;
+            }
+            const name = nameMatch[1];
+            const paramsRaw = content.slice(name.length).trim();
+            let params = [];
+            const paren = paramsRaw.match(/^\(([^)]*)\)/);
+            if (paren) {
+                params = paren[1]
+                    .split(',')
+                    .map(s => s.trim())
+                    .filter(Boolean)
+                    .map(s => s.replace(/^["'`]|["'`]$/g, ''));
+            }
+            else if (paramsRaw.length) {
+                params = paramsRaw
+                    .split(/\s+/)
+                    .map(s => s.trim().replace(/^["'`]|["'`]$/g, ''))
+                    .filter(Boolean);
+            }
+            const requireNoParams = ['includeMainChunk', 'useHash', 'noContent', 'noSlots', 'noBlocks', 'noPartial', 'noOptions', 'promise', 'callback'];
+            const range = { start: startPos, end: endPos };
+            switch (name) {
+                case 'extend':
+                case 'context':
+                    if (params.length < 1)
+                        issues.push({ ...range, message: `Directive ${name} requires 1 parameter`, severity: 'warning' });
+                    break;
+                case 'alias':
+                    if (params.length < 1)
+                        issues.push({ ...range, message: 'Directive alias requires at least 1 parameter', severity: 'warning' });
+                    break;
+                case 'requireAs':
+                    if (params.length !== 2)
+                        issues.push({ ...range, message: 'Directive requireAs requires exactly 2 parameters', severity: 'warning' });
+                    break;
+                case 'deindent':
+                    if (params.length > 1) {
+                        issues.push({ ...range, message: 'Directive deindent accepts at most 1 numeric parameter', severity: 'warning' });
+                    }
+                    else if (params.length === 1 && Number.isNaN(Number(params[0]))) {
+                        issues.push({ ...range, message: 'Directive deindent parameter must be a number', severity: 'warning' });
+                    }
+                    break;
+                case 'lang':
+                    if (params.length < 1)
+                        issues.push({ ...range, message: 'Directive lang requires 1 parameter or assignment', severity: 'warning' });
+                    break;
+                default:
+                    if (!DIRECTIVES.includes(name)) {
+                        issues.push({ ...range, message: `Unknown directive: ${name}`, severity: 'warning' });
+                    }
+                    else if (requireNoParams.includes(name) && params.length > 0) {
+                        issues.push({ ...range, message: `Directive ${name} does not accept parameters`, severity: 'warning' });
+                    }
+            }
+        }
+    }
+    catch { }
+    return issues;
+}
+// Validate extend directive resolves to an accessible parent template
+function collectExtendParentIssues(text, docUri, parseContent, workspaceRoots) {
+    const issues = [];
+    try {
+        const ast = parseContent(text);
+        if (ast && Array.isArray(ast.main)) {
+            for (const node of ast.main) {
+                if (node?.type === 'directive' && node.content) {
+                    const content = String(node.content).trim();
+                    if (content.startsWith('extend')) {
+                        const match = content.match(/extend\s*(?:\(\s*(["'`])([^"'`]+)\1\s*\)|\s+(["'`])([^"'`]+)\3)/);
+                        const rel = (match?.[2] || match?.[4])?.trim();
+                        if (rel) {
+                            const resolved = resolveTemplateRel(rel, docUri, workspaceRoots);
+                            const start = node.pos || 0;
+                            const length = (String(node.start || '').length + String(node.content || '').length + String(node.end || '').length) || content.length;
+                            const range = { start, end: start + length };
+                            if (!resolved) {
+                                issues.push({ start: range.start, end: range.end, message: `Parent template not found: ${rel}`, severity: 'error' });
+                            }
+                            else {
+                                try {
+                                    fs.accessSync(resolved, fs.constants.R_OK);
+                                }
+                                catch {
+                                    issues.push({ start: range.start, end: range.end, message: `Parent template is not accessible: ${resolved}`, severity: 'error' });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    catch { }
+    return issues;
+}
+// Find content('name') usages that are not locally declared nor in parent
+function collectUnknownContentAgainstParent(text, docUri, parseContent, getExtendTargetFrom) {
+    const out = [];
+    try {
+        const ast = parseContent(text);
+        const parentAbs = getExtendTargetFrom(text, docUri);
+        const parentBlocks = new Set();
+        if (parentAbs) {
+            try {
+                const parentSrc = fs.readFileSync(parentAbs, 'utf8');
+                const parentAst = parseContent(parentSrc);
+                for (const k of Object.keys(parentAst?.blocks || {}))
+                    parentBlocks.add(k);
+            }
+            catch { }
+        }
+        const contentRe = /content\(\s*(["'`])([^"'`]+)\1/g;
+        let m;
+        while ((m = contentRe.exec(text))) {
+            const blockName = m[2];
+            const localBlock = ast?.blocks?.[blockName];
+            if (!localBlock && !parentBlocks.has(blockName)) {
+                out.push({ index: m.index, length: m[0].length, name: blockName });
+            }
+        }
+    }
+    catch { }
+    return out;
+}
+// Find child-declared blocks that do not exist in parent
+function collectChildBlocksMissingInParent(text, docUri, parseContent, getExtendTargetFrom) {
+    const res = [];
+    try {
+        const ast = parseContent(text);
+        const parentAbs = getExtendTargetFrom(text, docUri);
+        if (!parentAbs || !ast?.blocks)
+            return res;
+        const parentBlocks = new Set();
+        try {
+            const parentSrc = fs.readFileSync(parentAbs, 'utf8');
+            const parentAst = parseContent(parentSrc);
+            for (const k of Object.keys(parentAst?.blocks || {}))
+                parentBlocks.add(k);
+        }
+        catch { }
+        if (parentBlocks.size === 0)
+            return res;
+        for (const [blockName, blockInfo] of Object.entries(ast.blocks)) {
+            if (!parentBlocks.has(blockName)) {
+                const declPos = blockInfo.declPos ?? blockInfo.pos ?? 0;
+                res.push({ start: declPos, end: declPos + 10, name: String(blockName) });
+            }
+        }
+    }
+    catch { }
+    return res;
 }

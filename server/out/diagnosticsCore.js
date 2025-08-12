@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.computeDiagnosticsFromText = computeDiagnosticsFromText;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const astUtils_1 = require("./astUtils");
 function computeDiagnosticsFromText(text, workspaceRoots = []) {
     const diags = [];
     // Unmatched end: more end tags than opened
@@ -99,7 +100,7 @@ function computeDiagnosticsFromText(text, workspaceRoots = []) {
             const exists = (rel) => {
                 for (const base of bases) {
                     const p = path.isAbsolute(rel) ? rel : path.join(base, rel);
-                    const variants = [p, p + '.njs', p + '.nhtml', p + '.nts'];
+                    const variants = (0, astUtils_1.getTemplatePathVariants)(p);
                     for (const v of variants) {
                         if (fs.existsSync(v))
                             return true;

@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { getTemplatePathVariants } from './astUtils';
 
 export type SimpleDiagnostic = {
   severity: 'error' | 'warning' | 'hint'
@@ -68,7 +69,7 @@ export function computeDiagnosticsFromText(text: string, workspaceRoots: string[
       const exists = (rel: string) => {
         for (const base of bases) {
           const p = path.isAbsolute(rel) ? rel : path.join(base, rel);
-          const variants = [p, p + '.njs', p + '.nhtml', p + '.nts'];
+          const variants = getTemplatePathVariants(p);
           for (const v of variants) { if (fs.existsSync(v)) return true; }
         }
         return false;

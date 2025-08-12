@@ -13,6 +13,24 @@
   "devDependencies": {
     "typescript": "^5.5.4",
     "@types/node": "^20.12.8",
-    "@types/vscode": "^1.96.0"
+    "@types/vscode": "^1.96.0",
+    "prettier": "^3.6.2"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "fte.js",
+      "properties": {
+        "prettier.documentSelectors": {
+          "type": "array",
+          "default": [
+            "template-js",
+            "template-html",
+            "template-typescript",
+            "template-markdown"
+          ],
+          "description": "Languages to format with Prettier via fte.js (if Prettier is installed)."
+        }
+      }
+    }
   }
 }

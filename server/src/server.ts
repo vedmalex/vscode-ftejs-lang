@@ -16,16 +16,20 @@ import {
   TextEdit,
   SignatureHelp,
   SignatureInformation,
-  ParameterInformation
+  ParameterInformation,
+  SemanticTokensLegend,
+  SemanticTokens,
+  SemanticTokensParams
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { buildSemanticTokensFromText, semanticTokenTypes, semanticTokenModifiers } from './semanticTokens';
+import { computeDiagnostics as computeDiagnosticsExternal } from './diagnostics';
+import { getCompletions } from './completion';
+import { getDefinition, getReferences, getHover } from './navigation';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as cp from 'child_process';
-import * as os from 'os';
-import * as prettier from 'prettier';
-import { formatSegments, formatWithSourceWalking } from './formatterCore';
-import { computeOpenBlocksFromAst, buildEndTagFor, computePairsFromAst } from './astUtils';
+import { formatSegments, formatWithSourceWalking, extractTemplateCodeView, extractInstructionCodeView } from './formatterCore';
+import { computeOpenBlocksFromText, buildEndTagFor, walkAstNodes, isTemplateTagLine, computeJsCodeDelta, collectAllASTSegments, getExtendTargetFrom as getExtendTargetFromUtil, extractBlockAndSlotSymbols } from './astUtils';
 import { Parser as LocalParser } from './parser';
 import * as url from 'url';
 
@@ -150,56 +154,37 @@ function indexText(uri: string, text: string, absPath?: string) {
   
   // Use AST-based approach for more robust parsing
   const ast = parseContent(text);
-  if (ast && Array.isArray(ast.main)) {
-    for (const node of ast.main as any[]) {
-      if (node.type === 'blockStart') {
-        const name = String(node.name || node.blockName || '');
-        if (name) {
-          const range = { start: node.pos, end: node.pos + (String(node.start || '').length) };
-          blocks.set(name, range);
-        }
-      } else if (node.type === 'slotStart') {
-        const name = String(node.name || node.slotName || '');
-        if (name) {
-          const range = { start: node.pos, end: node.pos + (String(node.start || '').length) };
-          slots.set(name, range);
+  walkAstNodes(ast, (node) => {
+    if (node.type === 'blockStart') {
+      const name = String(node.name || node.blockName || '');
+      if (name) {
+        const range = { start: node.pos, end: node.pos + (String(node.start || '').length) };
+        blocks.set(name, range);
+      }
+    } else if (node.type === 'slotStart') {
+      const name = String(node.name || node.slotName || '');
+      if (name) {
+        const range = { start: node.pos, end: node.pos + (String(node.start || '').length) };
+        slots.set(name, range);
+      }
+    }
+  });
+  // (AST-based parsing eliminates need for regex fallback)
+  // Extract requireAs directives from AST
+  walkAstNodes(ast, (node) => {
+    if (node.type === 'directive' && node.content) {
+      const content = String(node.content).trim();
+      if (content.startsWith('requireAs')) {
+        // Parse requireAs directive content
+        const match = content.match(/requireAs\s*\(\s*([^)]*)\s*\)/);
+        if (match) {
+          const params = match[1].split(',').map((s) => s.trim().replace(/^['"`]|['"`]$/g, ''));
+          if (params.length >= 2) requireAs.set(params[1], params[0]);
         }
       }
     }
-  } else {
-    // Fallback to regex if AST parsing fails
-    const rxDecl = /<#\s*-?\s*(block|slot)\s+(['"`])([^'"`]+)\2\s*:\s*-?\s*#>/g;
-    let m: RegExpExecArray | null;
-    while ((m = rxDecl.exec(text))) {
-      const name = m[3];
-      const range = { start: m.index, end: m.index + m[0].length };
-      if (m[1] === 'block') blocks.set(name, range); else slots.set(name, range);
-    }
-  }
-  // Extract requireAs directives from AST or fallback to regex
-  if (ast && Array.isArray(ast.main)) {
-    for (const node of ast.main as any[]) {
-      if (node.type === 'directive' && node.content) {
-        const content = String(node.content).trim();
-        if (content.startsWith('requireAs')) {
-          // Parse requireAs directive content
-          const match = content.match(/requireAs\s*\(\s*([^)]*)\s*\)/);
-          if (match) {
-            const params = match[1].split(',').map((s) => s.trim().replace(/^['"`]|['"`]$/g, ''));
-            if (params.length >= 2) requireAs.set(params[1], params[0]);
-          }
-        }
-      }
-    }
-  } else {
-    // Fallback to regex
-    const dirRe = /<#@\s*requireAs\s*\(([^)]*)\)\s*#>/g;
-    let d: RegExpExecArray | null;
-    while ((d = dirRe.exec(text))) {
-      const params = d[1].split(',').map((s) => s.trim().replace(/^['"`]|['"`]$/g, ''));
-      if (params.length >= 2) requireAs.set(params[1], params[0]);
-    }
-  }
+  });
+  // (AST-based parsing eliminates need for regex fallback)
   // remove old reverse index link if present
   const prev = fileIndex.get(uri);
   if (prev?.extendsPath) {
@@ -221,15 +206,7 @@ function indexText(uri: string, text: string, absPath?: string) {
   }
 }
 
-function posFromOffset(text: string, offset: number): Position {
-  let line = 0;
-  let col = 0;
-  for (let i = 0; i < offset && i < text.length; i++) {
-    const ch = text.charCodeAt(i);
-    if (ch === 10 /*\n*/ ) { line++; col = 0; } else { col++; }
-  }
-  return Position.create(line, col);
-}
+// moved to astUtils.ts: posFromOffset
 
 function loadUsageDocsFrom(pathCandidates: string[]) {
   for (const p of pathCandidates) {
@@ -346,6 +323,11 @@ connection.onInitialize((params: InitializeParams) => {
       signatureHelpProvider: { triggerCharacters: ['(', '"', "'"] },
       documentOnTypeFormattingProvider: { firstTriggerCharacter: '>', moreTriggerCharacter: ['\n'] },
       codeActionProvider: { resolveProvider: false },
+      semanticTokensProvider: {
+        legend: { tokenTypes: Array.from(semanticTokenTypes), tokenModifiers: Array.from(semanticTokenModifiers) } as SemanticTokensLegend,
+        range: false,
+        full: true
+      },
     },
   };
 });
@@ -354,6 +336,29 @@ connection.onInitialized(async () => {
   try {
     await connection.client.register(DidChangeConfigurationNotification.type, undefined as any);
   } catch {}
+});
+
+// Custom request: provide dual extraction views for a document
+connection.onRequest('ftejs/extractViews', (params: { uri: string; hostLanguage?: 'html'|'markdown'|'javascript'|'typescript' }) => {
+  try {
+    const doc = documents.get(params.uri);
+    if (!doc) { return { templateCode: '', instructionCode: '' }; }
+    const text = doc.getText();
+    const ast = parseContent(text);
+    // Derive host language if not provided
+    let host: 'html'|'markdown'|'javascript'|'typescript' = 'javascript';
+    if (params.hostLanguage) { host = params.hostLanguage; }
+    else {
+      const ext = (params.uri.split('.').pop() || '').toLowerCase();
+      host = ext === 'nhtml' ? 'html' : ext === 'nmd' ? 'markdown' : ext === 'nts' ? 'typescript' : 'javascript';
+    }
+    const codeView = extractTemplateCodeView(text, ast, { hostLanguage: host });
+    const instrView = extractInstructionCodeView(text, ast, { hostLanguage: host, instructionLanguage: host === 'typescript' ? 'typescript' : 'javascript' });
+    return { templateCode: codeView.code, instructionCode: instrView.code };
+  } catch (e) {
+    logError(e, 'extractViews');
+    return { templateCode: '', instructionCode: '' };
+  }
 });
 
 async function refreshSettings() {
@@ -373,11 +378,6 @@ connection.onDidChangeConfiguration(async () => {
   await refreshSettings();
 });
 
-const DIRECTIVES = [
-  'extend', 'context', 'alias', 'deindent', 'chunks', 'includeMainChunk', 'useHash',
-  'noContent', 'noSlots', 'noBlocks', 'noPartial', 'noOptions', 'promise', 'callback', 'requireAs', 'lang'
-];
-
 function parseContent(text: string) {
   // Use embedded parser consistently - no external dependencies (MUST_HAVE.md point 12)
   try {
@@ -389,916 +389,56 @@ function parseContent(text: string) {
 }
 
 // Collect all segments from AST in document order for formatting
-function collectAllASTSegments(ast: any): any[] {
-  if (!ast) return [];
-  
-  const allSegments: any[] = [];
-  
-  // First, collect all segments with their positions
-  const segmentsByPos: Array<{ pos: number; segment: any; source: string }> = [];
-  
-  // Add main segments
-  for (const item of ast.main || []) {
-    segmentsByPos.push({ pos: item.pos || 0, segment: item, source: 'main' });
-  }
-  
-  // Add block segments - need to reconstruct opening/closing tags
-  for (const [blockName, block] of Object.entries<any>(ast.blocks || {})) {
-    const blockContent = block.main || [];
-    if (blockContent.length > 0) {
-      const firstItem = blockContent[0];
-      const lastItem = blockContent[blockContent.length - 1];
-      
-      // Calculate block start position (before first content)
-      const blockStartPos = Math.max(0, (firstItem.pos || 0) - 50); // Rough estimate
-      
-      // Add synthetic block start tag
-      segmentsByPos.push({
-        pos: blockStartPos,
-        segment: {
-          type: 'blockStart',
-          content: ` block '${blockName}' : `,
-          start: '<#',
-          end: '#>',
-          pos: blockStartPos
-        },
-        source: 'block-start'
-      });
-      
-      // Add block content
-      for (const item of blockContent) {
-        segmentsByPos.push({ pos: item.pos || 0, segment: item, source: 'block-content' });
-      }
-      
-      // Add synthetic block end tag
-      const blockEndPos = (lastItem.pos || 0) + (lastItem.content?.length || 0) + 10;
-      segmentsByPos.push({
-        pos: blockEndPos,
-        segment: {
-          type: 'blockEnd', 
-          content: ' end ',
-          start: '<#',
-          end: '#>',
-          pos: blockEndPos
-        },
-        source: 'block-end'
-      });
-    }
-  }
-  
-  // Similar for slots
-  for (const [slotName, slot] of Object.entries<any>(ast.slots || {})) {
-    const slotContent = slot.main || [];
-    if (slotContent.length > 0) {
-      const firstItem = slotContent[0];
-      const lastItem = slotContent[slotContent.length - 1];
-      
-      const slotStartPos = Math.max(0, (firstItem.pos || 0) - 50);
-      segmentsByPos.push({
-        pos: slotStartPos,
-        segment: {
-          type: 'slotStart',
-          content: ` slot '${slotName}' : `,
-          start: '<#',
-          end: '#>',
-          pos: slotStartPos
-        },
-        source: 'slot-start'
-      });
-      
-      for (const item of slotContent) {
-        segmentsByPos.push({ pos: item.pos || 0, segment: item, source: 'slot-content' });
-      }
-      
-      const slotEndPos = (lastItem.pos || 0) + (lastItem.content?.length || 0) + 10;
-      segmentsByPos.push({
-        pos: slotEndPos,
-        segment: {
-          type: 'slotEnd',
-          content: ' end ',
-          start: '<#',
-          end: '#>',
-          pos: slotEndPos
-        },
-        source: 'slot-end'
-      });
-    }
-  }
-  
-  // Sort by position
-  segmentsByPos.sort((a, b) => a.pos - b.pos);
-  
-  // Extract just the segments
-  return segmentsByPos.map(item => item.segment);
-}
+// moved to astUtils.ts: collectAllASTSegments
 
 // Resolve parent template path from <#@ extend ... #>
 function getExtendTargetFrom(text: string, docUri?: string): string | null {
-  // Try AST-based approach first
-  const ast = parseContent(text);
-  if (ast && Array.isArray(ast.main)) {
-    for (const node of ast.main as any[]) {
-      if (node.type === 'directive' && node.content) {
-        const content = String(node.content).trim();
-        if (content.startsWith('extend')) {
-          // Parse extend directive content
-          const match = content.match(/extend\s*(?:\(\s*(["'`])([^"'`]+)\1\s*\)|\s+(["'`])([^"'`]+)\3)/);
-          const rel = (match?.[2] || match?.[4])?.trim();
-          if (rel) {
-            return resolveTemplatePath(rel, docUri);
-          }
-        }
-      }
-    }
-  }
-  
-  // Fallback to regex approach
-  const m = text.match(/<#@\s*extend\s*(?:\(\s*(["'`])([^"'`]+)\1\s*\)|\s*(["'`])([^"'`]+)\3)\s*#>/);
-  const rel = (m?.[2] || m?.[4])?.trim();
-  if (!rel) return null;
-  return resolveTemplatePath(rel, docUri);
-}
-
-function resolveTemplatePath(rel: string, docUri?: string): string | null {
-  try {
-    const currentDir = docUri && docUri.startsWith('file:') ? path.dirname(url.fileURLToPath(docUri)) : process.cwd();
-    const bases = [currentDir, ...workspaceRoots, ...workspaceRoots.map(r => path.join(r, 'templates'))];
-    for (const base of bases) {
-      const p = path.isAbsolute(rel) ? rel : path.join(base, rel);
-      const variants = [p, p + '.njs', p + '.nhtml', p + '.nts'];
-      for (const v of variants) { if (fs.existsSync(v)) return v; }
-    }
-  } catch {}
-  return null;
+  return getExtendTargetFromUtil(text, docUri, parseContent);
 }
 
 function computeDiagnostics(doc: TextDocument): Diagnostic[] {
-  const text = doc.getText();
-  const diags: Diagnostic[] = [];
-  // AST-driven structural validation
-  const ast: any = parseContent(text);
-  if (!ast || !Array.isArray(ast.main)) {
-    diags.push({
-      severity: DiagnosticSeverity.Error,
-      range: Range.create(Position.create(0, 0), Position.create(0, 1)),
-      message: 'Parse error',
-      source: 'fte.js'
-    });
-  } else {
-    try {
-      type StackItem = { name: string; pos: number };
-      const stack: StackItem[] = [];
-      // Validate naming of blocks/slots
-      const nameIsValid = (s: string) => /^[A-Za-z_][\w.-]*$/.test(s);
-      for (const n of ast.main as any[]) {
-        if (n.type === 'blockStart' || n.type === 'slotStart') {
-          const nm = String(n.name || n.blockName || n.slotName || '');
-          if (nm && !nameIsValid(nm)) {
-            const from = doc.positionAt(n.pos);
-            const to = doc.positionAt(n.pos + String(n.start || '').length);
-            diags.push({ severity: DiagnosticSeverity.Error, range: { start: from, end: to }, message: `Invalid ${n.type === 'blockStart' ? 'block' : 'slot'} name: ${nm}`, source: 'fte.js' });
-          }
-          stack.push({ name: nm, pos: n.pos });
-        } else if (n.type === 'end') {
-          if (stack.length === 0) {
-            const len = (text.slice(n.pos).match(/^<#-?\s*end\s*-?#>/)?.[0]?.length) || 5;
-            const start = doc.positionAt(n.pos);
-            const end = doc.positionAt(n.pos + len);
-            diags.push({ severity: DiagnosticSeverity.Error, range: { start, end }, message: 'Unmatched end', source: 'fte.js' });
-          } else {
-            stack.pop();
-          }
-        }
-      }
-      for (const it of stack) {
-        const start = doc.positionAt(it.pos);
-        const end = doc.positionAt(it.pos + 1);
-        diags.push({ severity: DiagnosticSeverity.Error, range: { start, end }, message: `Unclosed ${it.name}`, source: 'fte.js' });
-      }
-      // report parser internal errors (unmatched/unclosed)
-      if (Array.isArray((ast as any).errors)) {
-        for (const e of (ast as any).errors) {
-          const pos = doc.positionAt(e.pos || 0);
-          diags.push({ severity: DiagnosticSeverity.Error, range: { start: pos, end: pos }, message: e.message, source: 'fte.js' });
-        }
-      }
-    } catch {}
-  }
-
-  // Unknown content('name') references
-  try {
-    const ast = parseContent(text) as any;
-    const known = new Set<string>(Object.keys(ast?.blocks || {}));
-    // include blocks from parent template if extends
-    const parentAbs = getExtendTargetFrom(text, doc.uri);
-    if (parentAbs) {
-      try {
-        const src = fs.readFileSync(parentAbs, 'utf8');
-        const pAst = parseContent(src) as any;
-        for (const k of Object.keys(pAst?.blocks || {})) known.add(k);
-      } catch {}
-    }
-    // scan only inside expr/code nodes to avoid false positives in text
-    const contentRe = /content\(\s*(["'`])([^"'`]+)\1/g;
-    const partialRe = /partial\(\s*[^,]+,\s*(["'`])([^"'`]+)\1/g;
-    type Hit = { index: number; match: RegExpExecArray };
-    const contentHits: Hit[] = [];
-    const partialHits: Hit[] = [];
-    if (ast?.main) {
-      for (const n of ast.main as any[]) {
-        if (n && (n.type === 'expr' || n.type === 'code')) {
-          contentRe.lastIndex = 0; partialRe.lastIndex = 0;
-          let mm: RegExpExecArray | null;
-          while ((mm = contentRe.exec(String(n.content || '')))) {
-            const glob = n.pos + (String(n.start || '').length) + mm.index;
-            contentHits.push({ index: glob, match: mm });
-          }
-          while ((mm = partialRe.exec(String(n.content || '')))) {
-            const glob = n.pos + (String(n.start || '').length) + mm.index;
-            partialHits.push({ index: glob, match: mm });
-          }
-        }
-      }
-    }
-    for (const h of contentHits) {
-      const name = h.match[2];
-      if (!known.has(name)) {
-        const from = doc.positionAt(h.index);
-        const to = doc.positionAt(h.index + h.match[0].length);
-        diags.push({ severity: DiagnosticSeverity.Warning, range: { start: from, end: to }, message: `Unknown block name: ${name}`, source: 'fte.js' });
-      }
-    }
-    // unresolved partial alias/path (also scan via AST-bound hits)
-    for (const ph of partialHits) {
-      const key = ph.match[2];
-      // try local requireAs map
-      const dirRe = /<#@\s*requireAs\s*\(([^)]*)\)\s*#>/g; let d: RegExpExecArray | null; const local = new Map<string,string>();
-      while ((d = dirRe.exec(text))) {
-        const params = d[1].split(',').map((s) => s.trim().replace(/^["'`]|["'`]$/g, ''));
-        if (params.length >= 2) local.set(params[1], params[0]);
-      }
-      let target = local.get(key) || key;
-      if (target === key) {
-        for (const [, info] of fileIndex) { const mapped = info.requireAs.get(key); if (mapped) { target = mapped; break; } }
-      }
-      const bases = [ ...workspaceRoots, ...workspaceRoots.map(r => path.join(r, 'templates')) ];
-      const exists = (rel: string) => {
-        for (const base of bases) {
-          const p = path.isAbsolute(rel) ? rel : path.join(base, rel);
-          const variants = [p, p + '.njs', p + '.nhtml', p + '.nts'];
-          for (const v of variants) { if (fs.existsSync(v)) return true; }
-        }
-        return false;
-      };
-      if (!exists(target)) {
-        const from = doc.positionAt(ph.index);
-        const to = doc.positionAt(ph.index + ph.match[0].length);
-        diags.push({ severity: DiagnosticSeverity.Warning, range: { start: from, end: to }, message: `Unresolved partial: ${key}`, source: 'fte.js' });
-      }
-    }
-  } catch (e) { logError(e, 'computeDiagnostics.content'); }
-
-  // Duplicate block/slot declarations (AST based)
-  try {
-    const seen: Record<string, number> = {};
-    const ast2: any = parseContent(text);
-    if (ast2?.main) {
-      for (const n of ast2.main as any[]) {
-        if (n.type === 'blockStart' || n.type === 'slotStart') {
-          const name = String(n.name || n.blockName || n.slotName || '');
-          seen[name] = (seen[name] || 0) + 1;
-          if (seen[name] > 1) {
-            const from = doc.positionAt(n.pos);
-            const to = doc.positionAt(n.pos + String(n.start || '').length || 1);
-            diags.push({ severity: DiagnosticSeverity.Warning, range: { start: from, end: to }, message: `Duplicate ${n.type === 'blockStart' ? 'block' : 'slot'} declaration: ${name}`, source: 'fte.js' });
-          }
-        }
-      }
-    }
-  } catch {}
-
-  // Directive validation
-  // Trim hints: suggest using <#- or -#> when only whitespace is around
-  try {
-    const leftRx = /(\n?)([ \t]*)<#/g;
-    let ml: RegExpExecArray | null;
-    while ((ml = leftRx.exec(text))) {
-      // skip directives <#@
-      if (text.slice(ml.index, ml.index + 3) === '<#@') continue;
-      // skip structural tags <# block|slot|end
-      const tail = text.slice(ml.index, ml.index + 12);
-      if (/^<#-?\s*(block|slot|end)\b/.test(tail)) continue;
-      const dash = text.slice(ml.index, ml.index + 3) === '<#-';
-      if (dash) continue;
-      const prev = text[ml.index - 1] || '\n';
-      const atLineStart = prev === '\n' || ml.index === 0;
-      if (atLineStart && ml[2].length >= 0) {
-        const start = doc.positionAt(ml.index);
-        const end = doc.positionAt(ml.index + 2);
-        diags.push({ severity: DiagnosticSeverity.Warning, range: { start, end }, message: "Consider '<#-' to trim leading whitespace", source: 'fte.js' });
-      }
-    }
-    const rightRx = /#>([ \t]*)(\r?\n)/g;
-    let mr: RegExpExecArray | null;
-    while ((mr = rightRx.exec(text))) {
-      // skip directive endings
-      const openPos = text.lastIndexOf('<#', mr.index);
-      if (openPos >= 0 && text[openPos + 2] === '@') continue;
-      // skip structural tags <# block|slot|end ... #>
-      if (openPos >= 0) {
-        const tail = text.slice(openPos, openPos + 12);
-        if (/^<#-?\s*(block|slot|end)\b/.test(tail)) continue;
-      }
-      const prevTwo = text.slice(mr.index - 2, mr.index);
-      const dash = prevTwo === '-#';
-      if (dash) continue;
-      const start = doc.positionAt(mr.index);
-      const end = doc.positionAt(mr.index + 2);
-      diags.push({ severity: DiagnosticSeverity.Warning, range: { start, end }, message: "Consider '-#>' to trim trailing whitespace", source: 'fte.js' });
-    }
-  } catch {}
-
-  // Validate extend directive and parent template existence (MUST_HAVE.md point 14)
-  try {
-    const ast = parseContent(text) as any;
-    if (ast && Array.isArray(ast.main)) {
-      for (const node of ast.main as any[]) {
-        if (node.type === 'directive' && node.content) {
-          const content = String(node.content).trim();
-          if (content.startsWith('extend')) {
-            // Parse extend directive content
-            const match = content.match(/extend\s*(?:\(\s*(["'`])([^"'`]+)\1\s*\)|\s+(["'`])([^"'`]+)\3)/);
-            const rel = (match?.[2] || match?.[4])?.trim();
-            if (rel) {
-              const resolvedPath = resolveTemplatePath(rel, doc.uri);
-              if (!resolvedPath) {
-                const start = doc.positionAt(node.pos);
-                const end = doc.positionAt(node.pos + (String(node.start || '').length + String(node.content || '').length + String(node.end || '').length));
-                diags.push({ 
-                  severity: DiagnosticSeverity.Error, 
-                  range: { start, end }, 
-                  message: `Parent template not found: ${rel}`, 
-                  source: 'fte.js' 
-                });
-              } else {
-                // Check if parent template is accessible
-                try {
-                  fs.accessSync(resolvedPath, fs.constants.R_OK);
-                } catch {
-                  const start = doc.positionAt(node.pos);
-                  const end = doc.positionAt(node.pos + (String(node.start || '').length + String(node.content || '').length + String(node.end || '').length));
-                  diags.push({ 
-                    severity: DiagnosticSeverity.Error, 
-                    range: { start, end }, 
-                    message: `Parent template is not accessible: ${resolvedPath}`, 
-                    source: 'fte.js' 
-                  });
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  } catch (e) { 
-    logError(e, 'computeDiagnostics.extendValidation'); 
-  }
-
-  // Validate blocks used in child templates exist in parent chain
-  try {
-    const ast = parseContent(text) as any;
-    const parentAbs = getExtendTargetFrom(text, doc.uri);
-    if (parentAbs && ast?.main) {
-      // Get all parent blocks
-      const parentBlocks = new Set<string>();
-      try {
-        const parentSrc = fs.readFileSync(parentAbs, 'utf8');
-        const parentAst = parseContent(parentSrc) as any;
-        if (parentAst?.blocks) {
-          for (const blockName of Object.keys(parentAst.blocks)) {
-            parentBlocks.add(blockName);
-          }
-        }
-      } catch {}
-      
-      // Check if child template uses blocks that don't exist in parent
-      const contentRe = /content\(\s*(["'`])([^"'`]+)\1/g;
-      let m: RegExpExecArray | null;
-      while ((m = contentRe.exec(text))) {
-        const blockName = m[2];
-        const localBlock = ast?.blocks?.[blockName];
-        
-        // If block is used via content() but not defined locally and not in parent
-        if (!localBlock && !parentBlocks.has(blockName)) {
-          const start = doc.positionAt(m.index);
-          const end = doc.positionAt(m.index + m[0].length);
-          diags.push({ 
-            severity: DiagnosticSeverity.Error, 
-            range: { start, end }, 
-            message: `Block '${blockName}' is not defined in this template or parent template chain`, 
-            source: 'fte.js' 
-          });
-        }
-      }
-      
-      // Check if child template declares blocks that don't exist in parent (MUST_HAVE.md point 4.44)
-      if (ast?.blocks && parentBlocks.size > 0) {
-        for (const [blockName, blockInfo] of Object.entries(ast.blocks)) {
-          if (!parentBlocks.has(blockName)) {
-            // Block declared in child but not in parent - this might be intentional (new block) 
-            // or unintentional (typo in override). Show as warning.
-            const blockNode = (blockInfo as any);
-            if (blockNode && blockNode.declPos !== undefined) {
-              const start = doc.positionAt(blockNode.declPos);
-              const end = doc.positionAt(blockNode.declPos + 10); // approximate end
-              diags.push({ 
-                severity: DiagnosticSeverity.Information,
-                range: { start, end }, 
-                message: `Block '${blockName}' is declared in child template but does not exist in parent template. This creates a new block.`, 
-                source: 'fte.js' 
-              });
-            }
-          }
-        }
-      }
-    }
-  } catch (e) { 
-    logError(e, 'computeDiagnostics.parentBlockValidation'); 
-  }
-
-  // TODO: cross-file validation (P1): unknown aliases in `partial` or unresolvable paths
-  const dirRe = /<#@([\s\S]*?)#>/g;
-  let d: RegExpExecArray | null;
-  while ((d = dirRe.exec(text))) {
-    const content = d[1].trim();
-    const startPos = doc.positionAt(d.index);
-    const endPos = doc.positionAt(d.index + d[0].length);
-    const nameMatch = content.match(/^(\w+)/);
-    if (!nameMatch) {
-      diags.push({ severity: DiagnosticSeverity.Warning, range: { start: startPos, end: endPos }, message: 'Empty directive', source: 'fte.js' });
-      continue;
-    }
-    const name = nameMatch[1];
-    const paramsRaw = content.slice(name.length).trim();
-    // extract params inside parentheses if present, otherwise split by spaces/commas
-    let params: string[] = [];
-    const paren = paramsRaw.match(/^\(([^)]*)\)/);
-    if (paren) {
-      params = paren[1]
-        .split(',')
-        .map(s => s.trim())
-        .filter(Boolean)
-        .map(s => s.replace(/^['"`]|['"`]$/g, ''));
-    } else if (paramsRaw.length) {
-      params = paramsRaw
-        .split(/\s+/)
-        .map(s => s.trim().replace(/^['"`]|['"`]$/g, ''))
-        .filter(Boolean);
-    }
-    const range = { start: startPos, end: endPos };
-    const requireNoParams = ['includeMainChunk', 'useHash', 'noContent', 'noSlots', 'noBlocks', 'noPartial', 'noOptions', 'promise', 'callback'];
-    switch (name) {
-      case 'extend':
-      case 'context':
-        if (params.length < 1) {
-          diags.push({ severity: DiagnosticSeverity.Warning, range, message: `Directive ${name} requires 1 parameter`, source: 'fte.js' });
-        }
-        break;
-      case 'alias':
-        if (params.length < 1) {
-          diags.push({ severity: DiagnosticSeverity.Warning, range, message: 'Directive alias requires at least 1 parameter', source: 'fte.js' });
-        }
-        break;
-      case 'requireAs':
-        if (params.length !== 2) {
-          diags.push({ severity: DiagnosticSeverity.Warning, range, message: 'Directive requireAs requires exactly 2 parameters', source: 'fte.js' });
-        }
-        break;
-      case 'deindent':
-        if (params.length > 1) {
-          diags.push({ severity: DiagnosticSeverity.Warning, range, message: 'Directive deindent accepts at most 1 numeric parameter', source: 'fte.js' });
-        } else if (params.length === 1 && Number.isNaN(Number(params[0]))) {
-          diags.push({ severity: DiagnosticSeverity.Warning, range, message: 'Directive deindent parameter must be a number', source: 'fte.js' });
-        }
-        break;
-      case 'lang':
-        // lang directive supports both forms: <#@ lang = c# #> or <#@ lang(c#) #>
-        if (params.length < 1) {
-          diags.push({ severity: DiagnosticSeverity.Warning, range, message: 'Directive lang requires 1 parameter or assignment', source: 'fte.js' });
-        }
-        break;
-      default:
-        if (!DIRECTIVES.includes(name)) {
-          diags.push({ severity: DiagnosticSeverity.Warning, range, message: `Unknown directive: ${name}`, source: 'fte.js' });
-        } else if (requireNoParams.includes(name) && params.length > 0) {
-          diags.push({ severity: DiagnosticSeverity.Warning, range, message: `Directive ${name} does not accept parameters`, source: 'fte.js' });
-        }
-    }
-  }
-  return diags;
+  return computeDiagnosticsExternal(doc, {
+    parseContent,
+    getExtendTargetFrom,
+    fileIndex,
+    workspaceRoots,
+    logError: (e, ctx) => logError(e, ctx)
+  });
 }
 
 function computeOpenBlocks(text: string, upTo?: number) {
-  // MUST_USE_PARSER: compute pairs strictly via AST; no regex fallbacks
-  const ast = parseContent(text) as any;
-  const limit = upTo ?? text.length;
-  if (ast && Array.isArray(ast.main)) {
-    return computeOpenBlocksFromAst(ast.main as any[], limit);
-  }
-  return [];
+  return computeOpenBlocksFromText(text, upTo, parseContent);
 }
 
-function stripStringsAndComments(line: string): string {
-  // remove // comments
-  let res = line.replace(/\/\/.*$/, '');
-  // remove single/double/backtick quoted strings (no multiline)
-  res = res.replace(/'(?:\\.|[^'\\])*'/g, "'");
-  res = res.replace(/"(?:\\.|[^"\\])*"/g, '"');
-  res = res.replace(/`(?:\\.|[^`\\])*`/g, '`');
-  return res;
-}
-
-function isTemplateTagLine(line: string): boolean {
-  return /<#|#>|\#\{|!\{|<%|%>/.test(line);
-}
-
-function computeJsCodeDelta(line: string): { dedentFirst: number; delta: number } {
-  const trimmed = line.trimStart();
-  // case/default as outdented one level
-  let dedentFirst = /^(}|\)|\]|case\b|default\b)/.test(trimmed) ? 1 : 0;
-  if (/^default\b/.test(trimmed)) {
-    // keep same level for default
-    dedentFirst = 1;
-  }
-  const safe = stripStringsAndComments(line);
-  const opens = (safe.match(/[\{\(\[]/g) || []).length;
-  const closes = (safe.match(/[\}\)\]]/g) || []).length;
-  const delta = opens - closes;
-  return { dedentFirst, delta };
-}
+// moved to astUtils.ts: stripStringsAndComments, isTemplateTagLine, computeJsCodeDelta
 
 connection.onCompletion(({ textDocument, position }) => {
   const doc = documents.get(textDocument.uri);
   if (!doc) return [];
-  const text = doc.getText();
-  const offset = doc.offsetAt(position);
-  const prefix = text.slice(Math.max(0, offset - 50), offset);
-  const before = text.slice(0, offset);
-
-  const items: CompletionItem[] = [];
-
-  // directive completion inside <#@ ... #>
-  if (/<#@\s+[\w-]*$/.test(prefix)) {
-    items.push(
-      ...DIRECTIVES.map((d) => ({
-        label: d,
-        kind: CompletionItemKind.Keyword,
-        documentation: usageDocs.directives[d] || undefined
-      }))
-    );
-  }
-
-  // block/slot keywords
-  if (/<#-?\s*(block|slot)\s+['"`][^'"`]*$/.test(prefix)) {
-    items.push({ label: "end", kind: CompletionItemKind.Keyword });
-  }
-
-  // block/slot snippets with auto end
-  if (/<#-?\s*$/.test(prefix)) {
-    const snippets: CompletionItem[] = [
-      {
-        label: 'block (with end)',
-        kind: CompletionItemKind.Snippet,
-        insertTextFormat: InsertTextFormat.Snippet,
-        insertText: "<# block '${1:name}' : #>\n\t$0\n<# end #>"
-      },
-      {
-        label: 'block trimmed (with end)',
-        kind: CompletionItemKind.Snippet,
-        insertTextFormat: InsertTextFormat.Snippet,
-        insertText: "<#- block '${1:name}' : -#>\n\t$0\n<#- end -#>"
-      },
-      {
-        label: 'slot (with end)',
-        kind: CompletionItemKind.Snippet,
-        insertTextFormat: InsertTextFormat.Snippet,
-        insertText: "<# slot '${1:name}' : #>\n\t$0\n<# end #>"
-      },
-      {
-        label: 'slot trimmed (with end)',
-        kind: CompletionItemKind.Snippet,
-        insertTextFormat: InsertTextFormat.Snippet,
-        insertText: "<#- slot '${1:name}' : -#>\n\t$0\n<#- end -#>"
-      }
-    ];
-    items.push(...snippets);
-  }
-
-  // content()/partial() suggestions inside #{ ... }
-  if (/#\{\s*[\w$]*$/.test(prefix)) {
-    // suggest function names
-    const f = (name: string) => ({
-      label: name,
-      kind: CompletionItemKind.Function,
-      documentation: usageDocs.functions[name] || undefined
-    } as CompletionItem);
-    items.push(f('content'), f('partial'), f('slot'), f('chunkStart'), f('chunkEnd'));
-    // suggest known block/slot names inside string literal argument
-    const argPrefix = before.match(/content\(\s*(["'`])([^"'`]*)$/) || before.match(/slot\(\s*(["'`])([^"'`]*)$/);
-    if (argPrefix) {
-      const ast = parseContent(text) as any;
-      const seen = new Set<string>(Object.keys(ast?.blocks || {}));
-      // include parent via extend
-      const parentAbs = getExtendTargetFrom(text, textDocument.uri);
-      if (parentAbs) {
-        try {
-          const src = fs.readFileSync(parentAbs, 'utf8');
-          const pAst = parseContent(src) as any;
-          for (const k of Object.keys(pAst?.blocks || {})) seen.add(k);
-        } catch {}
-      }
-      // include project index (workspace)
-      for (const [, info] of fileIndex) {
-        for (const k of info.blocks.keys()) seen.add(k);
-      }
-      for (const name of seen) {
-        items.push({ label: name, kind: CompletionItemKind.Text });
-      }
-    }
-  }
-
-  return items;
+  return getCompletions(doc.getText(), textDocument.uri, position, {
+    usageDocs,
+    parseContent,
+    getExtendTargetFrom,
+    fileIndex,
+  });
 });
 
 connection.onHover(({ textDocument, position }) => {
   const doc = documents.get(textDocument.uri);
   if (!doc) return null;
-  const text = doc.getText();
-  const ast = parseContent(text);
-  if (!ast) return null;
-  const offset = doc.offsetAt(position);
-
-  // naive hover: show node type at position
-  const hit = (ast.main as any[]).find((n) => offset >= n.pos && offset <= (n.pos + (n.content?.length || 0)));
-  if (hit) {
-    // enrich hover for known functions/directives by scanning the token near cursor
-    const around = text.slice(Math.max(0, offset - 40), Math.min(text.length, offset + 40));
-    const func = around.match(/\b(partial|content|slot|chunkStart|chunkEnd)\b/);
-    if (func) {
-      const key = func[1];
-      const info = usageDocs.functions[key] || usageDocs.functions[key === 'chunkEnd' ? 'chunkStart' : key];
-      if (info) return { contents: { kind: 'markdown', value: info + "\n\nSee also: USAGE.md" } };
-    }
-    const dir = around.match(/<#@\s*(\w+)/);
-    if (dir) {
-      const info = usageDocs.directives[dir[1]];
-      if (info) return { contents: { kind: 'markdown', value: info + "\n\nSee also: USAGE.md" } };
-    }
-    // Show block/slot declaration hover
-    if (hit.type === 'blockStart' || hit.type === 'slotStart') {
-      return { contents: { kind: 'markdown', value: `Declared ${hit.type === 'blockStart' ? 'block' : 'slot'}` } };
-    }
-    return { contents: { kind: 'plaintext', value: `fte.js: ${hit.type}` } };
-  }
-  return null;
+  return getHover(doc.getText(), position, { usageDocs, parseContent }) as any;
 });
 
 connection.onDefinition(({ textDocument, position }) => {
   const doc = documents.get(textDocument.uri);
   if (!doc) return null;
-  const text = doc.getText();
-  const offset = doc.offsetAt(position);
-  const winStart = Math.max(0, offset - 200);
-  const winEnd = Math.min(text.length, offset + 200);
-  const around = text.slice(winStart, winEnd);
-  
-  // NOTE: content() navigation is DISABLED per MUST_HAVE.md point 13
-  // content() is a data insertion point, not a definition reference
-  // However, we should check if cursor is specifically on the block name inside content('block_name')
-  
-  // Check if cursor is on block name inside content('block_name') string literal
-  // Use global search to find all matches and pick the right one based on cursor position
-  const contentRegex = /content\(\s*(["'`])([^"'`]+)\1/g;
-  let contentMatch;
-  
-  while ((contentMatch = contentRegex.exec(around)) !== null) {
-    const blockName = contentMatch[2];
-    const contentStart = contentMatch.index;
-    const quoteStart = winStart + contentStart + contentMatch[0].indexOf(contentMatch[1]) + 1;
-    const quoteEnd = quoteStart + blockName.length;
-    
-    // Check if our offset falls within this match's quote range
-    if (offset >= quoteStart && offset <= quoteEnd) {
-      const ast = parseContent(text) as any;
-      // Use AST-based search instead of RegExp to find correct block
-      if (ast?.blocks?.[blockName]) {
-        const block = ast.blocks[blockName];
-        // Use declPos from AST if available (more reliable than RegExp)
-        if (block.declPos !== undefined) {
-          const declStart = doc.positionAt(block.declPos);
-          // Calculate end position based on declaration parts
-          const declLength = (block.declStart || '').length + (block.declContent || '').length + (block.declEnd || '').length;
-          const declEnd = doc.positionAt(block.declPos + declLength);
-          return Location.create(textDocument.uri, Range.create(declStart, declEnd));
-        }
-        // Fallback to first inner item if declPos not available
-        const first = ast.blocks[blockName].main?.[0];
-        if (first) {
-          return Location.create(textDocument.uri, Range.create(doc.positionAt(first.pos), doc.positionAt(first.pos + first.content.length)));
-        }
-      }
-      // If not found locally, try parent via extend
-      const parentAbs = getExtendTargetFrom(text, textDocument.uri);
-      if (parentAbs) {
-        try {
-          const src = fs.readFileSync(parentAbs, 'utf8');
-          const pAst = parseContent(src) as any;
-          if (pAst?.blocks?.[blockName]) {
-            // Try to use declPos from parent AST if available
-            const parentBlock = pAst.blocks[blockName];
-            if (parentBlock.declPos !== undefined) {
-              const uri = 'file://' + parentAbs;
-              const declStart = posFromOffset(src, parentBlock.declPos);
-              const declLength = (parentBlock.declStart || '').length + (parentBlock.declContent || '').length + (parentBlock.declEnd || '').length;
-              const declEnd = posFromOffset(src, parentBlock.declPos + declLength);
-              return Location.create(uri, Range.create(declStart, declEnd));
-            }
-            // Fallback to first inner item
-            const first = pAst.blocks[blockName].main?.[0];
-            if (first) {
-              const uri = 'file://' + parentAbs;
-              return Location.create(uri, Range.create(posFromOffset(src, first.pos), posFromOffset(src, first.pos + first.content.length)));
-            }
-          }
-        } catch (e) { logError(e, 'onDefinition.contentBlockName.parent'); }
-      }
-      break; // Stop after finding the right match
-    }
-  }
-  const mp = around.match(/partial\(\s*[^,]+,\s*(["'`])([^"'`]+)\1/);
-  if (mp) {
-    const key = mp[2];
-    // resolve alias/path
-    const aliasMap: Record<string, string> = {};
-    const dirRe = /<#@\s*requireAs\s*\(([^)]*)\)\s*#>/g;
-    let d: RegExpExecArray | null;
-    while ((d = dirRe.exec(text))) {
-      const params = d[1].split(',').map((s) => s.trim().replace(/^['"`]|['"`]$/g, ''));
-      if (params.length >= 2) aliasMap[params[1]] = params[0];
-    }
-    let target = aliasMap[key] || key;
-    // also scan workspace index for requireAs aliases
-    if (target === key) {
-      for (const [, info] of fileIndex) {
-        const mapped = info.requireAs.get(key);
-        if (mapped) { target = mapped; break; }
-      }
-    }
-    const tryResolve = (rel: string, baseDirs: string[]): string | null => {
-      for (const base of baseDirs) {
-        const c = path.isAbsolute(rel) ? rel : path.join(base, rel);
-        const variants = [c, c + '.njs', c + '.nhtml', c + '.nts'];
-        for (const v of variants) { if (fs.existsSync(v)) return v; }
-      }
-      return null;
-    };
-    const currentDir = textDocument.uri.startsWith('file:') ? path.dirname(url.fileURLToPath(textDocument.uri)) : process.cwd();
-    const bases = [currentDir, ...workspaceRoots, ...workspaceRoots.map(r => path.join(r, 'templates'))];
-    const resolved = tryResolve(target, bases);
-    if (resolved) {
-      const uri = 'file://' + resolved;
-      return Location.create(uri, Range.create(Position.create(0, 0), Position.create(0, 0)));
-    }
-  }
-  // If on a block/slot declaration name, just return its own location
-  const openRe = /<#\s*-?\s*(block|slot)\s+(['"`])([^'"`]+?)\2\s*:\s*-?\s*#>/g;
-  let match: RegExpExecArray | null;
-  while ((match = openRe.exec(text))) {
-    const nameStart = match.index + match[0].indexOf(match[3]);
-    const nameEnd = nameStart + match[3].length;
-    if (offset >= nameStart && offset <= nameEnd) {
-      // Prefer navigating to parent declaration if present (inheritance base)
-      const parentAbs = getExtendTargetFrom(text, textDocument.uri);
-      if (parentAbs) {
-        try {
-          const src = fs.readFileSync(parentAbs, 'utf8');
-          const declRe = new RegExp(`<#\\s*-?\\s*(?:block|slot)\\s+(["'\`])${match[3].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\1\\s*:\\s*-?\\s*#>`, 'g');
-          const dm = declRe.exec(src);
-          if (dm) {
-            const uri = 'file://' + parentAbs;
-            return Location.create(uri, Range.create(posFromOffset(src, dm.index), posFromOffset(src, dm.index + dm[0].length)));
-          }
-        } catch {}
-      }
-      return Location.create(textDocument.uri, Range.create(doc.positionAt(match.index), doc.positionAt(match.index + match[0].length)));
-    }
-  }
-  return null;
+  return getDefinition(doc.getText(), textDocument.uri, position, { parseContent, getExtendTargetFrom, fileIndex, workspaceRoots });
 });
 
 connection.onReferences(({ textDocument, position }) => {
   const doc = documents.get(textDocument.uri);
   if (!doc) return [];
-  const text = doc.getText();
-  const offset = doc.offsetAt(position);
-  const around = text.slice(Math.max(0, offset - 100), Math.min(text.length, offset + 100));
-  // Determine selected block name
-  const openRe = /<#\s*-?\s*(block|slot)\s+(['"`])([^'"`]+?)\2\s*:\s*-?\s*#>/g;
-  let selected: string | undefined;
-  let match: RegExpExecArray | null;
-  while ((match = openRe.exec(text))) {
-    const nameStart = match.index + match[0].indexOf(match[3]);
-    const nameEnd = nameStart + match[3].length;
-    if (offset >= nameStart && offset <= nameEnd) {
-      selected = match[3];
-      break;
-    }
-  }
-  if (!selected) return [];
-  // Collect all references via content('name') and declaration
-  const res: Location[] = [];
-  // declaration
-  if (match) {
-    res.push(Location.create(textDocument.uri, Range.create(doc.positionAt(match.index), doc.positionAt(match.index + match[0].length))));
-  }
-  // usages
-  const usageRe = new RegExp(String.raw`content\(\s*(["'\`])${selected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\1`, 'g');
-  const slotRe = new RegExp(String.raw`slot\(\s*(["'\`])${selected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\1`, 'g');
-  let u: RegExpExecArray | null;
-  while ((u = usageRe.exec(text))) {
-    const start = doc.positionAt(u.index);
-    const end = doc.positionAt(u.index + u[0].length);
-    res.push(Location.create(textDocument.uri, Range.create(start, end)));
-  }
-  while ((u = slotRe.exec(text))) {
-    const start = doc.positionAt(u.index);
-    const end = doc.positionAt(u.index + u[0].length);
-    res.push(Location.create(textDocument.uri, Range.create(start, end)));
-  }
-  // cross-file usages
-  for (const [uri, info] of fileIndex) {
-    if (uri === textDocument.uri) continue;
-    const p = info.path ? fs.readFileSync(info.path, 'utf8') : '';
-    if (!p) continue;
-    let mu: RegExpExecArray | null;
-    usageRe.lastIndex = 0;
-    while ((mu = usageRe.exec(p))) {
-      const start = posFromOffset(p, mu.index);
-      const end = posFromOffset(p, mu.index + mu[0].length);
-      res.push(Location.create(uri, Range.create(start, end)));
-    }
-    slotRe.lastIndex = 0;
-    while ((mu = slotRe.exec(p))) {
-      const start = posFromOffset(p, mu.index);
-      const end = posFromOffset(p, mu.index + mu[0].length);
-      res.push(Location.create(uri, Range.create(start, end)));
-    }
-  }
-  // include declarations of overrides in child templates that extend current file
-  const thisAbs = textDocument.uri.startsWith('file:') ? url.fileURLToPath(textDocument.uri) : undefined;
-  if (thisAbs) {
-    const children = extendsChildren.get(thisAbs);
-    if (children) {
-      const declRe = new RegExp(`<#\\s*-?\\s*(?:block|slot)\\s+(["'\`])${selected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\1\\s*:\\s*-?\\s*#>`, 'g');
-      for (const childUri of children) {
-        const info = fileIndex.get(childUri);
-        const src = info?.path ? fs.readFileSync(info.path, 'utf8') : '';
-        if (!src) continue;
-        let mm: RegExpExecArray | null;
-        while ((mm = declRe.exec(src))) {
-          const start = posFromOffset(src, mm.index);
-          const end = posFromOffset(src, mm.index + mm[0].length);
-          res.push(Location.create(childUri, Range.create(start, end)));
-        }
-      }
-    }
-  }
-  // Partial references if cursor is within partial(..., 'name') argument
-  const mp = around.match(/partial\(\s*[^,]+,\s*(["'`])([^"'`]+)\1/);
-  if (mp) {
-    const key = mp[2].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const prx = new RegExp(String.raw`partial\(\s*[^,]+,\s*(["'\`])${key}\1`, 'g');
-    // current file
-    let mu: RegExpExecArray | null;
-    while ((mu = prx.exec(text))) {
-      const start = doc.positionAt(mu.index);
-      const end = doc.positionAt(mu.index + mu[0].length);
-      res.push(Location.create(textDocument.uri, Range.create(start, end)));
-    }
-    // other files
-    for (const [uri, info] of fileIndex) {
-      if (uri === textDocument.uri) continue;
-      const p = info.path ? fs.readFileSync(info.path, 'utf8') : '';
-      if (!p) continue;
-      prx.lastIndex = 0;
-      while ((mu = prx.exec(p))) {
-        const start = posFromOffset(p, mu.index);
-        const end = posFromOffset(p, mu.index + mu[0].length);
-        res.push(Location.create(uri, Range.create(start, end)));
-      }
-    }
-  }
-  return res;
+  return getReferences(doc.getText(), textDocument.uri, position, { fileIndex });
 });
 
 connection.onSignatureHelp(({ textDocument, position }) => {
@@ -1329,8 +469,10 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
     
     const indentSize = options.tabSize || 2;
     const text = doc.getText();
+    const originalUri = textDocument.uri;
     logDebug('Starting document formatting', 'onDocumentFormatting', { 
-      uri: textDocument.uri, 
+      originalUri,
+      documentVersion: doc.version,
       textLength: text.length,
       indentSize 
     });
@@ -1424,6 +566,13 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
       formattedLength: replaced.length,
       hasTerminalNewline: needsTerminalNewline
     });
+    // Sanity check: ensure URI did not change during formatting lifecycle
+    if (textDocument.uri !== originalUri) {
+      logError(new Error('URI changed during formatting'), 'onDocumentFormatting', {
+        original: originalUri,
+        current: textDocument.uri
+      });
+    }
     
     return [TextEdit.replace(fullRange, replaced)];
   } catch (err) {
@@ -1478,144 +627,17 @@ connection.onCodeAction(({ textDocument, range, context }) => {
   if (!doc) return [];
   const text = doc.getText();
   const diagnostics = context.diagnostics || [];
-  const actions: any[] = [];
-  // Quick fix for unmatched end
-  const hasUnmatchedEnd = diagnostics.some(d => /Unmatched end/.test(d.message));
-  if (hasUnmatchedEnd) {
-    actions.push({
-      title: 'Remove unmatched end',
-      kind: 'quickfix',
-      edit: { changes: { [textDocument.uri]: [TextEdit.del(range)] } }
-    });
-  }
-  // Quick fix: sanitize invalid block/slot names
-  for (const d of diagnostics) {
-    const m = d.message.match(/^Invalid (block|slot) name: (.+)$/);
-    if (m) {
-      const kind = m[1];
-      const bad = m[2];
-      const sanitized = bad
-        .replace(/[^A-Za-z0-9_.-]/g, '_')
-        .replace(/^[^A-Za-z_]+/, '_');
-      const docText = text;
-      // Find the declaration near diagnostic range
-      const startOff = doc.offsetAt(d.range.start);
-      const searchFrom = Math.max(0, startOff - 200);
-      const searchTo = Math.min(docText.length, startOff + 200);
-      const snippet = docText.slice(searchFrom, searchTo);
-      const declRe = new RegExp(String.raw`<#\s*-?\s*${kind}\s+(["'\`])([^"'\`]+)\1\s*:\s*-?\s*#>`);
-      const local = declRe.exec(snippet);
-      if (local) {
-        const nameStartLocal = local.index + local[0].indexOf(local[2]);
-        const from = doc.positionAt(searchFrom + nameStartLocal);
-        const to = doc.positionAt(searchFrom + nameStartLocal + local[2].length);
-        actions.push({
-          title: `Rename ${kind} to '${sanitized}'`,
-          kind: 'quickfix',
-          diagnostics: [d],
-          edit: { changes: { [textDocument.uri]: [TextEdit.replace({ start: from, end: to }, sanitized)] } }
-        });
-      }
-    }
-  }
-  // Quick fixes for trim suggestions
-  for (const d of diagnostics) {
-    if (d.message.includes("Consider '<#-")) {
-      // Replace '<#' with '<#-' at the diagnostic range
-      actions.push({
-        title: "Apply left trim '<#-'",
-        kind: 'quickfix',
-        diagnostics: [d],
-        edit: { changes: { [textDocument.uri]: [TextEdit.replace(d.range, '<#-')] } }
-      });
-    }
-    if (d.message.includes("Consider '-#>")) {
-      // Replace '#>' with '-#>' at the diagnostic range
-      actions.push({
-        title: "Apply right trim '-#>'",
-        kind: 'quickfix',
-        diagnostics: [d],
-        edit: { changes: { [textDocument.uri]: [TextEdit.replace(d.range, '-#>')] } }
-      });
-    }
-  }
-  // Action: Close all open blocks at cursor
-  const offset = doc.offsetAt(range.end);
-  const stack = computeOpenBlocks(text, offset);
-  if (stack.length) {
-    const indent = ' '.repeat((range.start.character));
-    const tags = stack.map(s => `<#${s.trimmedOpen ? '-' : ''} end ${s.trimmedClose ? '-' : ''}#>`).join(`\n${indent}`);
-    actions.push({
-      title: 'Close open template blocks here',
-      kind: 'quickfix',
-      edit: { changes: { [textDocument.uri]: [TextEdit.insert(range.end, `\n${indent}${tags}`)] } }
-    });
-  }
-  // Wrap selection into template block/code
-  const selectionText = text.slice(doc.offsetAt(range.start), doc.offsetAt(range.end));
-  if (selectionText && selectionText.length > 0) {
-    actions.push({
-      title: 'Wrap with <#- ... -#>',
-      kind: 'refactor.rewrite',
-      edit: { changes: { [textDocument.uri]: [TextEdit.replace(range, `<#- ${selectionText} -#>`)] } }
-    });
-    actions.push({
-      title: "Wrap with <# ... #>",
-      kind: 'refactor.rewrite',
-      edit: { changes: { [textDocument.uri]: [TextEdit.replace(range, `<# ${selectionText} #>`)] } }
-    });
-    // Prompted transforms (handled on client via commands)
-    actions.push({ title: "Transform to block (prompt name)", kind: 'refactor.extract', command: { title: 'transform', command: 'ftejs.refactor.toBlock', arguments: [{ uri: textDocument.uri, range }] } });
-    actions.push({ title: "Transform to slot (prompt name)", kind: 'refactor.extract', command: { title: 'transform', command: 'ftejs.refactor.toSlot', arguments: [{ uri: textDocument.uri, range }] } });
-    actions.push({ title: "Transform to partial (prompt name)", kind: 'refactor.rewrite', command: { title: 'transform', command: 'ftejs.refactor.toPartial', arguments: [{ uri: textDocument.uri, range }] } });
-  }
-  // Refactor: extract heavy expression inside #{ ... } to const and use #{var}
-  const curOffset = doc.offsetAt(range.start);
-  const before = text.slice(0, curOffset);
-  const after = text.slice(curOffset);
-  const openIdx = before.lastIndexOf('#{');
-  const openBangIdx = before.lastIndexOf('!{');
-  const open = Math.max(openIdx, openBangIdx);
-  const closeRel = after.indexOf('}');
-  if (open >= 0 && closeRel >= 0) {
-    const exprStart = open + 2; // after #{ or !{
-    const exprEnd = curOffset + closeRel; // index of '}'
-    const exprText = text.slice(exprStart, exprEnd);
-    if (exprText.trim().length > 20) { // heuristic: heavy
-      let idx = 1; let varName = `_expr${idx}`;
-      while (text.includes(varName)) { idx += 1; varName = `_expr${idx}`; }
-      const lineStart = Position.create(range.start.line, 0);
-      const insertDecl = TextEdit.insert(lineStart, `<# const ${varName} = ${exprText.trim()} #>\n`);
-      const replaceRange = Range.create(doc.positionAt(exprStart), doc.positionAt(exprEnd));
-      const replaceExpr = TextEdit.replace(replaceRange, ` ${varName} `);
-      actions.push({
-        title: 'Extract expression to const and use in template',
-        kind: 'refactor.extract',
-        edit: { changes: { [textDocument.uri]: [insertDecl, replaceExpr] } }
-      });
-    }
-  }
-  // Quick fix: create missing block for Unknown block name diagnostics
-  for (const d of diagnostics) {
-    const m = d.message.match(/^Unknown block name: (.+)$/);
-    if (m) {
-      const name = m[1];
-      const insertAt = Position.create(0, 0);
-      const scaffold = `<# block '${name}' : #>\n<# end #>\n`;
-      actions.push({
-        title: `Create block '${name}' at file start`,
-        kind: 'quickfix',
-        edit: { changes: { [textDocument.uri]: [TextEdit.insert(insertAt, scaffold)] } }
-      });
-      const curInsert = range.start;
-      actions.push({
-        title: `Insert block '${name}' here`,
-        kind: 'quickfix',
-        edit: { changes: { [textDocument.uri]: [TextEdit.insert(curInsert, scaffold)] } }
-      });
-    }
-  }
-  return actions;
+  const indentSize = context?.only?.length ? 2 : 2; // keep existing behavior
+  const { buildCodeActions } = require('./codeActions');
+  return buildCodeActions({
+    text,
+    uri: textDocument.uri,
+    range,
+    diagnostics,
+    doc,
+    indentSize,
+    parseContent
+  });
 });
 
   // publish diagnostics on open/change with counts like typical linters
@@ -1645,44 +667,57 @@ connection.onDocumentSymbol(({ textDocument }) => {
   if (!doc) return [];
   const ast = parseContent(doc.getText());
   if (!ast) return [];
-
-  // expose blocks and slots as document symbols
+  const { blocks, slots } = extractBlockAndSlotSymbols(ast);
   const symbols: any[] = [];
-  for (const [name, block] of Object.entries<any>(ast.blocks || {})) {
-    const first = block.main[0];
-    if (first) {
-      symbols.push({
-        name: `block ${name}`,
-        kind: 12, // SymbolKind.Function
-        range: {
-          start: doc.positionAt(first.pos),
-          end: doc.positionAt(first.pos + first.content.length)
-        },
-        selectionRange: {
-          start: doc.positionAt(first.pos),
-          end: doc.positionAt(first.pos + Math.min(20, first.content.length))
-        }
-      });
-    }
+  for (const b of blocks) {
+    symbols.push({
+      name: `block ${b.name}`,
+      kind: 12,
+      range: { start: doc.positionAt(b.startPos), end: doc.positionAt(b.endPos) },
+      selectionRange: { start: doc.positionAt(b.startPos), end: doc.positionAt(Math.min(b.endPos, b.startPos + 20)) }
+    });
   }
-  for (const [name, slot] of Object.entries<any>(ast.slots || {})) {
-    const first = slot.main[0];
-    if (first) {
-      symbols.push({
-        name: `slot ${name}`,
-        kind: 12,
-        range: {
-          start: doc.positionAt(first.pos),
-          end: doc.positionAt(first.pos + first.content.length)
-        },
-        selectionRange: {
-          start: doc.positionAt(first.pos),
-          end: doc.positionAt(first.pos + Math.min(20, first.content.length))
-        }
-      });
-    }
+  for (const s of slots) {
+    symbols.push({
+      name: `slot ${s.name}`,
+      kind: 12,
+      range: { start: doc.positionAt(s.startPos), end: doc.positionAt(s.endPos) },
+      selectionRange: { start: doc.positionAt(s.startPos), end: doc.positionAt(Math.min(s.endPos, s.startPos + 20)) }
+    });
   }
   return symbols;
+});
+
+// Semantic tokens: provide stable highlighting independent of TextMate quirks
+connection.languages.semanticTokens.on((params: SemanticTokensParams): SemanticTokens => {
+  try {
+    const doc = documents.get(params.textDocument.uri);
+    if (!doc) return { data: [] } as any;
+    const text = doc.getText();
+    const built = buildSemanticTokensFromText(text);
+    // LSP requires delta-encoded integers: [lineDelta, startCharDelta, length, tokenType, tokenModifiers]
+    const legendTypes = Array.from(semanticTokenTypes);
+    const legendMods = Array.from(semanticTokenModifiers);
+    const data: number[] = [];
+    let prevLine = 0;
+    let prevChar = 0;
+    for (const t of built.sort((a,b) => a.line - b.line || a.char - b.char)) {
+      const lineDelta = t.line - prevLine;
+      const charDelta = lineDelta === 0 ? t.char - prevChar : t.char;
+      const tokenType = Math.max(0, legendTypes.indexOf(t.type as any));
+      const modMask = (t.modifiers || []).reduce((acc, m) => {
+        const idx = legendMods.indexOf(m as any);
+        return idx >= 0 ? acc | (1 << idx) : acc;
+      }, 0);
+      data.push(lineDelta, charDelta, t.length, tokenType, modMask);
+      prevLine = t.line;
+      prevChar = t.char;
+    }
+    return { data } as any;
+  } catch (e) {
+    logError(e, 'semanticTokens.on');
+    return { data: [] } as any;
+  }
 });
 
 documents.listen(connection);

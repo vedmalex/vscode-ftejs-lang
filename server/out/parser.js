@@ -3,6 +3,7 @@
 // This ensures all syntax parsing operations use consistent AST approach
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Parser = exports.CodeBlock = void 0;
+exports.SUB = SUB;
 const globalStates = {
     text: {
         states: [
@@ -59,11 +60,11 @@ const globalStates = {
     },
     blockStart: {
         start: ['<# block', '<#- block'],
-        end: [': #>', ': -#>'],
+        end: ['#>', '-#>'],
     },
     slotStart: {
         start: ['<# slot', '<#- slot'],
-        end: [': #>', ': -#>'],
+        end: ['#>', '-#>'],
     },
     blockEnd: {
         start: ['<# end #>', '<#- end #>', '<# end -#>', '<#- end -#>'],
@@ -113,6 +114,10 @@ function sub(buffer, str, pos = 0, size) {
         return res;
     }
     return '';
+}
+// Expose SUB for compatibility tests with upstream fte.js-parser
+function SUB(buffer, str, pos = 0, size) {
+    return sub(buffer, str, pos, size);
 }
 class Parser {
     static parse(text, options = {}) {

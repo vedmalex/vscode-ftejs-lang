@@ -86,30 +86,7 @@
             }
           ]
         },
-        {
-          "begin": "(?:<#-(?!\\s*(?:block|slot)\\b)|<#(?!\\s*(?:block|slot|@|end\\s*#>)|\\{))",
-          "beginCaptures": {
-            "0": {
-              "name": "punctuation.definition.bracket.template.block.begin"
-            }
-          },
-          "end": "[-]?#>",
-          "endCaptures": {
-            "0": {
-              "name": "punctuation.definition.bracket.template.block.end"
-            }
-          },
-          "contentName": "meta.embedded.block.javascript",
-          "patterns": [
-            {
-              "include": "source.js"
-            },
-            {
-              "name": "support.function.fte",
-              "match": "\\b(partial|content|slot|chunkStart|chunkEnd)\\s*(?=\\()"
-            }
-          ]
-        },
+        
         {
           "begin": "<\\*",
           "beginCaptures": {
@@ -126,7 +103,7 @@
           "name": "comment.block.template"
         },
         {
-          "begin": "<#\\s*-?\\s*block\\s+(['\"`])([^'`\"]+)\\1\\s*:\\s*-?\\s*#>",
+          "begin": "<#\\s*-?\\s*block\\s+(['\\\"`])([^'`\\\"]+)\\1\\s*:\\s*-?\\s*#>",
           "beginCaptures": {
             "0": { "name": "punctuation.definition.bracket.template.block.begin" },
             "2": { "name": "entity.name.tag.block.template" }
@@ -134,21 +111,13 @@
           "end": "<#\\s*-?\\s*end\\s*-?\\s*#>",
           "endCaptures": { "0": { "name": "punctuation.definition.bracket.template.block.end" } },
           "name": "meta.block.template",
-          "patterns": [ { "include": "$self" } ]
+          "patterns": [ 
+            { "include": "$self" },
+            { "include": "#template-expressions" }
+          ]
         },
         {
-          "begin": "<#\\s*-?\\s*block\\s+(['\"`])([^'`\"]+)\\1\\s*:\\s*-?\\s*#>",
-          "beginCaptures": {
-            "0": { "name": "punctuation.definition.bracket.template.block.begin" },
-            "2": { "name": "entity.name.tag.block.template" }
-          },
-          "end": "<#\\s*-?\\s*end\\s*-?\\s*#>",
-          "endCaptures": { "0": { "name": "punctuation.definition.bracket.template.block.end" } },
-          "name": "meta.block.template",
-          "patterns": [ { "include": "$self" } ]
-        },
-        {
-          "begin": "<#\\s*-?\\s*slot\\s+(['\"`])([^'`\"]+)\\1\\s*:\\s*-?\\s*#>",
+          "begin": "<#\\s*-?\\s*slot\\s+(['\\\"`])([^'`\\\"]+)\\1\\s*:\\s*-?\\s*#>",
           "beginCaptures": {
             "0": { "name": "punctuation.definition.bracket.template.slot.begin" },
             "2": { "name": "entity.name.tag.slot.template" }
@@ -156,18 +125,10 @@
           "end": "<#\\s*-?\\s*end\\s*-?\\s*#>",
           "endCaptures": { "0": { "name": "punctuation.definition.bracket.template.slot.end" } },
           "name": "meta.slot.template",
-          "patterns": [ { "include": "$self" } ]
-        },
-        {
-          "begin": "<#\\s*-?\\s*slot\\s+(['\"`])([^'`\"]+)\\1\\s*:\\s*-?\\s*#>",
-          "beginCaptures": {
-            "0": { "name": "punctuation.definition.bracket.template.slot.begin" },
-            "2": { "name": "entity.name.tag.slot.template" }
-          },
-          "end": "<#\\s*-?\\s*end\\s*-?\\s*#>",
-          "endCaptures": { "0": { "name": "punctuation.definition.bracket.template.slot.end" } },
-          "name": "meta.slot.template",
-          "patterns": [ { "include": "$self" } ]
+          "patterns": [ 
+            { "include": "$self" },
+            { "include": "#template-expressions" }
+          ]
         },
         {
           "begin": "<%#",
@@ -261,6 +222,28 @@
           "patterns": [
             {
               "include": "source.js"
+            }
+          ]
+        },
+        {
+          "begin": "<#-?",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.bracket.template.block.begin"
+            }
+          },
+          "end": "-?#>",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.bracket.template.block.end"
+            }
+          },
+          "contentName": "meta.embedded.block.javascript",
+          "patterns": [
+            { "include": "source.js" },
+            {
+              "name": "support.function.fte",
+              "match": "\\b(partial|content|slot|chunkStart|chunkEnd)\\s*(?=\\()"
             }
           ]
         }

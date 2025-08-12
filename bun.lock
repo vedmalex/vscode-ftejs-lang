@@ -4,8 +4,6 @@
     "": {
       "name": "fte-js-template",
       "dependencies": {
-        "fte.js-parser": "^3.0.0-rc.12",
-        "fte.js-standalone": "^3.0.0-rc.12",
         "vscode-languageclient": "^9.0.1",
         "vscode-languageserver": "^9.0.1",
         "vscode-languageserver-textdocument": "^1.0.11",
@@ -20,6 +18,7 @@
       "devDependencies": {
         "@types/node": "^20.12.8",
         "@types/vscode": "^1.96.0",
+        "prettier": "^3.6.2",
         "typescript": "^5.5.4",
       },
     },
@@ -27,7 +26,6 @@
       "name": "ftejs-server",
       "version": "0.0.1",
       "dependencies": {
-        "fte.js-parser": "^3.0.0-rc.12",
         "prettier": "^3.6.2",
         "vscode-languageserver": "^9.0.1",
         "vscode-languageserver-textdocument": "^1.0.11",
@@ -254,8 +252,6 @@
 
     "deepmerge": ["deepmerge@4.3.1", "", {}, "sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A=="],
 
-    "detect-indent": ["detect-indent@6.1.0", "", {}, "sha512-reYkTUJAZb9gUuZ2RvVCNhVHdg62RHnJ7WJl8ftMi4diZ6NWlciOzQN88pUhSELEwflJht4oQDv0F0BMlwaYtA=="],
-
     "detect-newline": ["detect-newline@3.1.0", "", {}, "sha512-TLz+x/vEXm/Y7P7wn1EJFNLxYpUD4TgMosxY6fAVJUnJMbupHBOncxyWUG9OpTaH9EBD7uFI5LfEgmMOc54DsA=="],
 
     "diff-sequences": ["diff-sequences@29.6.3", "", {}, "sha512-EjePK1srD3P08o2j4f0ExnylqRs5B9tJjcp9t1krH2qRi8CCdsYfwe9JgSLurFBWwq4uOlipzfk5fHNvwFKr8Q=="],
@@ -291,14 +287,6 @@
     "fs.realpath": ["fs.realpath@1.0.0", "", {}, "sha512-OO0pH2lK6a0hZnAdau5ItzHPI6pUlvI7jMVnxUQRtw4owF2wk8lOSabtGDCTP4Ggrg2MbGnWO9X8K1t4+fGMDw=="],
 
     "fsevents": ["fsevents@2.3.3", "", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
-
-    "fte.js-base": ["fte.js-base@3.0.0-rc.12", "", {}, "sha512-PsdH44DBJtC5y0BUyoeKhU8NKNLvgXDYVm6d05+sQiOZCH+bPpFi+58JLsDLMMJFgCsspUbFAaAU7U1DGU8UbA=="],
-
-    "fte.js-parser": ["fte.js-parser@3.0.0-rc.12", "", { "dependencies": { "detect-indent": "^6.1.0" } }, "sha512-hNn3f0dbLOlAR01LwUpQB1gdcw6s1bR0C+03rRAKpbp2fHIn3OIuuI5tHFoT6mtQh+F21MX+DAIxz2fdGKAbwA=="],
-
-    "fte.js-standalone": ["fte.js-standalone@3.0.0-rc.12", "", { "dependencies": { "fte.js-base": "^3.0.0-rc.12", "fte.js-parser": "^3.0.0-rc.12", "fte.js-templates": "^3.0.0-rc.12" } }, "sha512-TtZtho8liENLalRcIcFtXGVdiWbOG7AvRdMRCMwEElAYaS1uoVf9SXK1+i8DuTK3tLQtUvIL78F2ldrFj6Qc+A=="],
-
-    "fte.js-templates": ["fte.js-templates@3.0.0-rc.12", "", { "dependencies": { "fte.js-base": "^3.0.0-rc.12" } }, "sha512-V3sG4FD8Bfr7QhyhXXTFwyC89zdEB8dIV45SYX5ScIhNMXIObvh8xouip548cj4wXBMLcvD7AlCU94eyBZWevg=="],
 
     "ftejs-client": ["ftejs-client@workspace:client"],
 

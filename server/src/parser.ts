@@ -111,11 +111,11 @@ const globalStates: { [key: string]: StateDefinition } = {
   },
   blockStart: {
     start: ['<# block', '<#- block'],
-    end: [': #>', ': -#>'],
+    end: ['#>', '-#>'],
   },
   slotStart: {
     start: ['<# slot', '<#- slot'],
-    end: [': #>', ': -#>'],
+    end: ['#>', '-#>'],
   },
   blockEnd: {
     start: ['<# end #>', '<#- end #>', '<# end -#>', '<#- end -#>'],
@@ -176,6 +176,11 @@ function sub(buffer: string, str: string, pos: number = 0, size?: number) {
     return res
   }
   return ''
+}
+
+// Expose SUB for compatibility tests with upstream fte.js-parser
+export function SUB(buffer: string, str: string, pos: number = 0, size?: number) {
+  return sub(buffer, str, pos, size)
 }
 
 export class Parser {

@@ -17,6 +17,7 @@
     │   │   ├── diagnosticsCore.ts
     │   │   ├── formatterCore.ts
     │   │   ├── parser.ts
+    │   │   ├── semanticTokens.ts
     │   │   └── server.ts
     │   ├── package.json
     │   └── tsconfig.json
@@ -322,6 +323,35 @@ export async function activate(context: vscode.ExtensionContext) {
       } catch (e) {
         vscode.window.showErrorMessage(`Live preview failed: ${e}`);
       }
+    }),
+    // Debug: inspect syntax scopes at current position
+    vscode.commands.registerCommand('ftejs.debug.syntaxScopes', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) { return; }
+      const position = editor.selection.active;
+      // Try to fetch semantic tokens legend or tokens; fallback to token inspection message
+      let scopes: string[] = [];
+      try {
+        const res = await vscode.commands.executeCommand<any>(
+          'vscode.provideDocumentSemanticTokensLegend',
+          editor.document
+        );
+        if (res && Array.isArray(res.tokenTypes)) {
+          scopes = res.tokenTypes as string[];
+        }
+      } catch {}
+      const panel = vscode.window.createWebviewPanel(
+        'ftejsSyntaxDebug',
+        'Syntax Scopes at Position',
+        vscode.ViewColumn.Beside,
+        {}
+      );
+      panel.webview.html = `<!doctype html><html><body>
+        <h3>Position: Line ${position.line + 1}, Column ${position.character + 1}</h3>
+        <h4>Scopes:</h4>
+        <ul>${(scopes || []).map((s) => `<li>${s}</li>`).join('')}</ul>
+        <p>Tip: You can also use the VSCode command <b>Developer: Inspect Editor Tokens and Scopes</b>.</p>
+      </body></html>`;
     }),
     // Convert file to template (MUST_HAVE.md point 8)
     vscode.commands.registerCommand('ftejs.convertToTemplate', async () => {
@@ -652,25 +682,7 @@ export function computeDiagnosticsFromText(text: string, workspaceRoots: string[
 export type FormatItem = { type: string; start: string; end: string; content: string };
 export type FormatSettings = { format?: { textFormatter?: boolean; codeFormatter?: boolean; keepBlankLines?: number } };
 
-interface TokenGroup {
-  directives: any[];
-  content: any[];
-}
-
-function groupTokensForReordering(tokens: any[]): TokenGroup {
-  const directives: any[] = [];
-  const content: any[] = [];
-  
-  for (const token of tokens) {
-    if (token.type === 'directive') {
-      directives.push(token);
-    } else {
-      content.push(token);
-    }
-  }
-  
-  return { directives, content };
-}
+// Note: We intentionally preserve the original token order. No reordering.
 
 function normalizeStructuralTag(token: any): string {
   const rawToken = (token.start || '') + (token.content || '') + (token.end || '');
@@ -754,6 +766,27 @@ export function formatWithSourceWalking(
   ast: any,
   options: { indentSize: number; defaultLang: string; settings?: FormatSettings; uri?: string; prettierConfigCache?: Record<string, any> }
 ): string {
+  // Guard: formatter must not perform or be influenced by file operations or URI mutations
+  let guardError: Error | undefined;
+  try {
+    if (options?.uri) {
+      const suspicious = /\bcopy\b|\btmp\b/i.test(options.uri);
+      if (suspicious) {
+        guardError = new Error('Invalid URI detected - possible file operation during formatting');
+      }
+    }
+    // Ensure there is no dynamic import of fs/child_process in call stack
+    const stack = new Error().stack || '';
+    if (!guardError && (/\brequire\(['"]fs['"]\)/.test(stack) || /\bfrom\s+['"]fs['"]/i.test(stack))) {
+      guardError = new Error('Forbidden module fs usage detected during formatting');
+    }
+    if (!guardError && (/\brequire\(['"]child_process['"]\)/.test(stack) || /\bfrom\s+['"]child_process['"]/i.test(stack))) {
+      guardError = new Error('Forbidden module child_process usage detected during formatting');
+    }
+  } catch {
+    // ignore guard evaluation failures; will not set guardError in that case
+  }
+  if (guardError) { throw guardError; }
   const indentSize = options.indentSize;
   const defaultLang = options.defaultLang;
   const settings = options.settings;
@@ -820,22 +853,8 @@ export function formatWithSourceWalking(
     }
   };
 
-  // Group tokens: directives first, then content
-  const { directives, content } = groupTokensForReordering(tokens);
-  
-  // Process directives first (place at top with no indentation)
-  for (let i = 0; i < directives.length; i++) {
-    const directive = directives[i];
-    const rawToken = (directive.start || '') + (directive.content || '') + (directive.end || '');
-    result.push(rawToken);
-    // Always add newline after directive except if it's the last one and no content follows
-    if (i < directives.length - 1 || content.length > 0) {
-      result.push('\n');
-    }
-  }
-  
-  // Main algorithm: iterate through content tokens in order
-  for (const token of content) {
+  // Main algorithm: iterate through all tokens in their original order
+  for (const token of tokens) {
     const rawToken = (token.start || '') + (token.content || '') + (token.end || '');
     
     switch (token.type) {
@@ -853,6 +872,13 @@ export function formatWithSourceWalking(
           textBuffer += rawToken;
           if (token.eol) textBuffer += '\n';
         }
+        break;
+      
+      case 'directive':
+        // Preserve directives exactly where they appear; do not reorder or re-indent
+        flushTextChunk();
+        result.push(rawToken);
+        if (token.eol) result.push('\n');
         break;
         
       case 'expression':
@@ -1172,6 +1198,11 @@ function sub(buffer: string, str: string, pos: number = 0, size?: number) {
   return ''
 }
 
+// Expose SUB for compatibility tests with upstream fte.js-parser
+export function SUB(buffer: string, str: string, pos: number = 0, size?: number) {
+  return sub(buffer, str, pos, size)
+}
+
 export class Parser {
   private buffer: string
   private size: number
@@ -1467,6 +1498,143 @@ export class Parser {
 
 ```
 
+`server/src/semanticTokens.ts`
+
+```ts
+import { Parser } from './parser'
+
+export const semanticTokenTypes = [
+  'namespace', 'type', 'class', 'enum', 'interface', 'struct', 'typeParameter',
+  'parameter', 'variable', 'property', 'enumMember', 'event', 'function', 'method',
+  'macro', 'keyword', 'modifier', 'comment', 'string', 'number', 'regexp', 'operator'
+] as const
+
+export type TokenType = typeof semanticTokenTypes[number]
+
+export const semanticTokenModifiers = [
+  'declaration', 'definition', 'readonly', 'static', 'deprecated', 'abstract', 'async', 'modification', 'documentation', 'defaultLibrary'
+] as const
+
+export type TokenModifier = typeof semanticTokenModifiers[number]
+
+export type BuiltToken = { line: number; char: number; length: number; type: TokenType; modifiers?: TokenModifier[] }
+
+export function buildSemanticTokensFromText(text: string): BuiltToken[] {
+  const ast: any = Parser.parse(text)
+  return buildSemanticTokensFromAst(text, ast)
+}
+
+export function buildSemanticTokensFromAst(text: string, ast: any): BuiltToken[] {
+  if (!ast || !Array.isArray(ast.main)) return []
+  const tokens: BuiltToken[] = []
+
+  const add = (from: number, to: number, type: TokenType, mods?: TokenModifier[]) => {
+    if (from >= to) return
+    const start = offsetToPos(text, from)
+    tokens.push({ line: start.line, char: start.character, length: Math.max(1, to - from), type, modifiers: mods })
+  }
+
+  for (const node of (ast as any).tokens || ast.main) {
+    const startLen = (node.start || '').length
+    const contentLen = (node.content || '').length
+    const endLen = (node.end || '').length
+    const startOff = node.pos ?? 0
+
+    const contentOff = startOff + startLen
+    const endOff = contentOff + contentLen
+
+    switch (node.type) {
+      case 'directive':
+        // <#@ ... #>
+        add(startOff, startOff + startLen, 'operator')
+        // highlight directive name as keyword within content
+        {
+          const c = String(node.content || '')
+          const m = c.match(/^\s*(\w+)/)
+          if (m) {
+            const kwStart = contentOff + (m.index || 0)
+            add(kwStart, kwStart + m[1].length, 'macro', ['declaration'])
+          }
+        }
+        add(endOff, endOff + endLen, 'operator')
+        break
+      case 'expression':
+        // #{ ... } and !{ ... }
+        add(startOff, startOff + startLen, 'operator')
+        add(endOff, endOff + endLen, 'operator')
+        break
+      case 'blockStart':
+      case 'slotStart': {
+        // <# block 'name' : #>
+        add(startOff, startOff + startLen, 'operator')
+        const c = String(node.content || '')
+        // keyword
+        {
+          const m = c.match(/^(\s*)(block|slot)\b/)
+          if (m) {
+            const kwStart = contentOff + (m[1]?.length || 0)
+            add(kwStart, kwStart + (m[2]?.length || 0), 'keyword', ['declaration'])
+          }
+        }
+        // quoted name as string
+        const nameMatch = c.match(/['"`][^'"`]+['"`]/)
+        if (nameMatch) {
+          const nameStart = contentOff + (nameMatch.index || 0)
+          add(nameStart, nameStart + nameMatch[0].length, 'string')
+        }
+        add(endOff, endOff + endLen, 'operator')
+        break
+      }
+      case 'blockEnd':
+        add(startOff, startOff + startLen, 'operator')
+        // 'end' keyword in content
+        {
+          const c = String(node.content || '')
+          const m = c.match(/\bend\b/)
+          if (m) {
+            const kwStart = contentOff + (m.index || 0)
+            add(kwStart, kwStart + 3, 'keyword')
+          }
+        }
+        add(endOff, endOff + endLen, 'operator')
+        break
+      case 'comments':
+        add(startOff, endOff + endLen, 'comment')
+        break
+      case 'code': {
+        // Recognize helper function names as functions
+        const c = String(node.content || '')
+        const helpers = ['partial', 'content', 'slot', 'chunkStart', 'chunkEnd']
+        for (const h of helpers) {
+          const re = new RegExp(String.raw`\b${h}\b`, 'g')
+          let m: RegExpExecArray | null
+          while ((m = re.exec(c))) {
+            const s = contentOff + (m.index || 0)
+            add(s, s + h.length, 'function')
+          }
+        }
+        break
+      }
+      default:
+        break
+    }
+  }
+
+  return tokens
+}
+
+function offsetToPos(text: string, offset: number): { line: number; character: number } {
+  let line = 0
+  let character = 0
+  for (let i = 0; i < offset && i < text.length; i++) {
+    const ch = text.charCodeAt(i)
+    if (ch === 10 /*\n*/) { line++; character = 0 } else { character++ }
+  }
+  return { line, character }
+}
+
+```
+
 `server/src/server.ts`
 
 ```ts
@@ -1488,9 +1656,13 @@ import {
   TextEdit,
   SignatureHelp,
   SignatureInformation,
-  ParameterInformation
+  ParameterInformation,
+  SemanticTokensLegend,
+  SemanticTokens,
+  SemanticTokensParams
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { buildSemanticTokensFromText, semanticTokenTypes, semanticTokenModifiers } from './semanticTokens';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as cp from 'child_process';
@@ -1818,6 +1990,11 @@ connection.onInitialize((params: InitializeParams) => {
       signatureHelpProvider: { triggerCharacters: ['(', '"', "'"] },
       documentOnTypeFormattingProvider: { firstTriggerCharacter: '>', moreTriggerCharacter: ['\n'] },
       codeActionProvider: { resolveProvider: false },
+      semanticTokensProvider: {
+        legend: { tokenTypes: Array.from(semanticTokenTypes), tokenModifiers: Array.from(semanticTokenModifiers) } as SemanticTokensLegend,
+        range: false,
+        full: true
+      },
     },
   };
 });
@@ -2801,8 +2978,10 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
     
     const indentSize = options.tabSize || 2;
     const text = doc.getText();
+    const originalUri = textDocument.uri;
     logDebug('Starting document formatting', 'onDocumentFormatting', { 
-      uri: textDocument.uri, 
+      originalUri,
+      documentVersion: doc.version,
       textLength: text.length,
       indentSize 
     });
@@ -2896,6 +3075,13 @@ connection.onDocumentFormatting(({ textDocument, options }) => {
       formattedLength: replaced.length,
       hasTerminalNewline: needsTerminalNewline
     });
+    // Sanity check: ensure URI did not change during formatting lifecycle
+    if (textDocument.uri !== originalUri) {
+      logError(new Error('URI changed during formatting'), 'onDocumentFormatting', {
+        original: originalUri,
+        current: textDocument.uri
+      });
+    }
     
     return [TextEdit.replace(fullRange, replaced)];
   } catch (err) {
@@ -3157,6 +3343,38 @@ connection.onDocumentSymbol(({ textDocument }) => {
   return symbols;
 });
 
+// Semantic tokens: provide stable highlighting independent of TextMate quirks
+connection.languages.semanticTokens.on((params: SemanticTokensParams): SemanticTokens => {
+  try {
+    const doc = documents.get(params.textDocument.uri);
+    if (!doc) return { data: [] } as any;
+    const text = doc.getText();
+    const built = buildSemanticTokensFromText(text);
+    // LSP requires delta-encoded integers: [lineDelta, startCharDelta, length, tokenType, tokenModifiers]
+    const legendTypes = Array.from(semanticTokenTypes);
+    const legendMods = Array.from(semanticTokenModifiers);
+    const data: number[] = [];
+    let prevLine = 0;
+    let prevChar = 0;
+    for (const t of built.sort((a,b) => a.line - b.line || a.char - b.char)) {
+      const lineDelta = t.line - prevLine;
+      const charDelta = lineDelta === 0 ? t.char - prevChar : t.char;
+      const tokenType = Math.max(0, legendTypes.indexOf(t.type as any));
+      const modMask = (t.modifiers || []).reduce((acc, m) => {
+        const idx = legendMods.indexOf(m as any);
+        return idx >= 0 ? acc | (1 << idx) : acc;
+      }, 0);
+      data.push(lineDelta, charDelta, t.length, tokenType, modMask);
+      prevLine = t.line;
+      prevChar = t.char;
+    }
+    return { data } as any;
+  } catch (e) {
+    logError(e, 'semanticTokens.on');
+    return { data: [] } as any;
+  }
+});
+
 documents.listen(connection);
 connection.listen();
 
@@ -3300,30 +3518,7 @@ connection.listen();
             }
           ]
         },
-        {
-          "begin": "(?:<#-(?!\\s*(?:block|slot)\\b)|<#(?!\\s*(?:block|slot|@|end\\s*#>)|\\{))",
-          "beginCaptures": {
-            "0": {
-              "name": "punctuation.definition.bracket.template.block.begin"
-            }
-          },
-          "end": "[-]?#>",
-          "endCaptures": {
-            "0": {
-              "name": "punctuation.definition.bracket.template.block.end"
-            }
-          },
-          "contentName": "meta.embedded.block.javascript",
-          "patterns": [
-            {
-              "include": "source.js"
-            },
-            {
-              "name": "support.function.fte",
-              "match": "\\b(partial|content|slot|chunkStart|chunkEnd)\\s*(?=\\()"
-            }
-          ]
-        },
+        
         {
           "begin": "<\\*",
           "beginCaptures": {
@@ -3340,7 +3535,7 @@ connection.listen();
           "name": "comment.block.template"
         },
         {
-          "begin": "<#\\s*-?\\s*block\\s+(['\"`])([^'`\"]+)\\1\\s*:\\s*-?\\s*#>",
+          "begin": "<#\\s*-?\\s*block\\s+(['\\\"`])([^'`\\\"]+)\\1\\s*:\\s*-?\\s*#>",
           "beginCaptures": {
             "0": { "name": "punctuation.definition.bracket.template.block.begin" },
             "2": { "name": "entity.name.tag.block.template" }
@@ -3348,21 +3543,13 @@ connection.listen();
           "end": "<#\\s*-?\\s*end\\s*-?\\s*#>",
           "endCaptures": { "0": { "name": "punctuation.definition.bracket.template.block.end" } },
           "name": "meta.block.template",
-          "patterns": [ { "include": "$self" } ]
+          "patterns": [ 
+            { "include": "$self" },
+            { "include": "#template-expressions" }
+          ]
         },
         {
-          "begin": "<#\\s*-?\\s*block\\s+(['\"`])([^'`\"]+)\\1\\s*:\\s*-?\\s*#>",
-          "beginCaptures": {
-            "0": { "name": "punctuation.definition.bracket.template.block.begin" },
-            "2": { "name": "entity.name.tag.block.template" }
-          },
-          "end": "<#\\s*-?\\s*end\\s*-?\\s*#>",
-          "endCaptures": { "0": { "name": "punctuation.definition.bracket.template.block.end" } },
-          "name": "meta.block.template",
-          "patterns": [ { "include": "$self" } ]
-        },
-        {
-          "begin": "<#\\s*-?\\s*slot\\s+(['\"`])([^'`\"]+)\\1\\s*:\\s*-?\\s*#>",
+          "begin": "<#\\s*-?\\s*slot\\s+(['\\\"`])([^'`\\\"]+)\\1\\s*:\\s*-?\\s*#>",
           "beginCaptures": {
             "0": { "name": "punctuation.definition.bracket.template.slot.begin" },
             "2": { "name": "entity.name.tag.slot.template" }
@@ -3370,18 +3557,10 @@ connection.listen();
           "end": "<#\\s*-?\\s*end\\s*-?\\s*#>",
           "endCaptures": { "0": { "name": "punctuation.definition.bracket.template.slot.end" } },
           "name": "meta.slot.template",
-          "patterns": [ { "include": "$self" } ]
-        },
-        {
-          "begin": "<#\\s*-?\\s*slot\\s+(['\"`])([^'`\"]+)\\1\\s*:\\s*-?\\s*#>",
-          "beginCaptures": {
-            "0": { "name": "punctuation.definition.bracket.template.slot.begin" },
-            "2": { "name": "entity.name.tag.slot.template" }
-          },
-          "end": "<#\\s*-?\\s*end\\s*-?\\s*#>",
-          "endCaptures": { "0": { "name": "punctuation.definition.bracket.template.slot.end" } },
-          "name": "meta.slot.template",
-          "patterns": [ { "include": "$self" } ]
+          "patterns": [ 
+            { "include": "$self" },
+            { "include": "#template-expressions" }
+          ]
         },
         {
           "begin": "<%#",
@@ -3475,6 +3654,28 @@ connection.listen();
           "patterns": [
             {
               "include": "source.js"
+            }
+          ]
+        },
+        {
+          "begin": "<#-?",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.bracket.template.block.begin"
+            }
+          },
+          "end": "-?#>",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.bracket.template.block.end"
+            }
+          },
+          "contentName": "meta.embedded.block.javascript",
+          "patterns": [
+            { "include": "source.js" },
+            {
+              "name": "support.function.fte",
+              "match": "\\b(partial|content|slot|chunkStart|chunkEnd)\\s*(?=\\()"
             }
           ]
         }
@@ -4323,6 +4524,8 @@ connection.listen();
         "blockComment": [ "<*", "*>" ]
     },
 	"brackets": [
+		["<#", "#>"],
+		["<#-", "-#>"],
 		["{", "}"],
 		["<*", "*>"],
 		["[", "]"],
@@ -4330,10 +4533,6 @@ connection.listen();
 		["#{", "}"],
 		["{{", "}}"],
 		["{{&", "}}"],
-		["<#", "#>"],
-		["<#-", "-#>"],
-		["<#", "-#>"],
-		["<#-", "#>"],
 
 		["<%", "%>"],
 		["<%", "-%>"],
@@ -4352,8 +4551,15 @@ connection.listen();
 		["<%_", "_%>"],
 
 		["<%#", "%>"],
-		["<#@", "#>"],
+		["<#@", "#>"]
 	],
+    "colorizedBracketPairs": [
+        ["<#", "#>"],
+        ["<#-", "-#>"],
+        ["{", "}"],
+        ["[", "]"],
+        ["(", ")"]
+    ],
 	"autoClosingPairs": [
 		["<%", "%>"],
 		["{{", "}}"],
@@ -4379,7 +4585,7 @@ connection.listen();
 		["\"", "\""],
 		["`", "`"],
 		["#", "#"],
-		["<", ">"],
+		["<", ">"]
 	],
 	"autoCloseBefore": ";:.,=}])>` \n\t",
 	"folding": {
@@ -8302,6 +8508,7 @@ connection.listen();
       { "command": "ftejs.scaffold.slot", "title": "fte.js: Insert Slot" },
       { "command": "ftejs.scaffold.chunkPair", "title": "fte.js: Insert chunkStart/chunkEnd" },
       { "command": "ftejs.scaffold.partial", "title": "fte.js: Create Partial and Insert Call" },
+      { "command": "ftejs.debug.syntaxScopes", "title": "fte.js: Debug Syntax Scopes (experimental)" },
       { "command": "ftejs.generator.nhtmlPage", "title": "fte.js: Generate .nhtml Page" },
       { "command": "ftejs.generator.ntsClass", "title": "fte.js: Generate .nts Class" },
       { "command": "ftejs.preview.chunks", "title": "fte.js: Preview Chunks (static)" },

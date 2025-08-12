@@ -1,7 +1,5 @@
-jest.mock('prettier', () => ({
-  format: (src) => src.replace(/\s*\+\s*/g, ' + ').replace(/\s+/g, ' ').trim(),
-  resolveConfigSync: () => ({})
-}));
+const { mockPrettier } = require('./testSetup.js');
+mockPrettier();
 const { formatSegments } = require('../out/formatterCore.js');
 
 function runFormat({ uri = 'file:///test.nhtml', indentSize = 2, lang = 'html', settings = { format: { textFormatter: false, codeFormatter: true, keepBlankLines: -1 } } } = {}) {

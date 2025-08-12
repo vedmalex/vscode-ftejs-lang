@@ -1,8 +1,6 @@
 // Mock prettier to avoid module issues in tests
-jest.mock('prettier', () => ({
-  format: (src) => src.replace(/\s+/g, ' ').trim(),
-  resolveConfigSync: () => ({})
-}));
+const { mockPrettier } = require('./testSetup.js');
+mockPrettier();
 
 const { Parser } = require('../out/parser.js');
 const { formatWithSourceWalking } = require('../out/formatterCore.js');

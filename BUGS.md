@@ -33,7 +33,8 @@ NEW (2025-08-11):
 - [ ] Syntax highlighting is lost for specific lines (7,8,9) in @/Users/vedmalex/work/fte2/demo/complexSample/views/index.nhtml
 - [ ] Bracket pair highlighting (`<# #>`) is lost for specific lines (7,8,9) in @/Users/vedmalex/work/fte2/demo/complexSample/views/index.nhtml
 - [ ] Incorrect syntax highlighting and lost bracket pairs in @/Users/vedmalex/work/fte2/demo/generators/server/Application.Config/app.dotenv.njs
-  - Root cause: block/slot scopes included only `source.js` but not template constructs, so nested directives weren't recognized. Fixed by making block/slot include `$self` recursively across all template grammars.
+  - [x] Root cause: block/slot scopes included only `source.js` but not template constructs, so nested directives weren't recognized. Fixed by making block/slot include `$self` recursively across all template grammars.
+  - [x] Additional: VS Code bracket configuration had conflicting pairs mixing trimmed and non-trimmed open/close variants causing loss of bracket pairing on some lines. Simplified `language-configuration.json` to only declare canonical `<# ... #>` and `<#- ... -#>` pairs for stability.
 
 Tests completed (2025-08-11):
 - [x] Added comprehensive E2E tests for formatter bugs (panel-bug, html-bug, dotenv-bug)
@@ -47,3 +48,12 @@ Tests completed (2025-08-11):
 - [x] **NEW**: Add tests for enhanced logging system.
 - [x] **NEW**: Add tests for embedded parser functionality.
 - [x] **NEW**: Add tests for enhanced convert-to-template command.
+ 
+NEW (2025-08-12):
+- [x] Incorrect scope `unexpected-closing-bracket` for `<#-` at start of code block in `.nhtml` led to lost highlighting and bracket pairing. Root cause: fragile negative-lookahead regex in `template-html.tmLanguage.json` and duplicated block/slot rules causing precedence issues. Fix: removed fragile rule, deduplicated block/slot patterns, and added simple generic `<#-?` ... `-?#>` rule placed last. Added tests `grammar-regex-sanity.test.js` to prevent regression.
+- [ ] **NEW (2025-08-12)**: Cross-file validation missing for unknown aliases in `partial` or unresolvable paths - TODO comment found in server.ts:861
+- [x] **NEW (2025-08-12)**: Форматирование увеличивает количество строк после блочных конструкций `<# block/slot 'main' : #>` и `<# end #>` - ИСПРАВЛЕНО: обновлена логика `ensureBlockSeparation` и `ensureNewlineSuffix` для точной проверки существующих переводов строк; форматировщик больше не добавляет лишние пустые строки; все 172 теста проходят
+- [x] **NEW (2025-08-12)**: Потеря пробела между соседними выражениями в тексте при защите плейсхолдерами (например, `#{user.firstName} #{user.lastName}` становилось без пробела). Исправлено: в `formatWithSourceWalking` сохраняются пробельные текстовые токены без `eol`, что предотвращает склейку выражений. Покрыто тестом `formatter-expression-indent.test.js` (complex HTML).
+- [x] **NEW (2025-08-12)**: Блоки вставки текста `#{...}` и `!{...}` меняют отступы при форматировании - expression блоки должны сохранять свой исходный indent, так как они являются частью текстового контента, а не кода
+- [x] **NEW (2025-08-12)**: Formatter increases blank lines after structural tags `<# block/slot '...' : #>` and `<# end #>`. Extra blank line(s) appear after normalization. Action: ensure `ensureBlockSeparation`, `ensureNewlineSuffix`, and `ensureBlockEndSeparation` are idempotent and content-aware; add regression tests for consecutive structural tags and mixed text. FIXED: Improved text token handling to skip adjacent structural whitespace and made blockStart/blockEnd logic idempotent with proper separation analysis.
+- [x] **NEW (2025-08-12)**: Formatter добавляет лишние пустые строки после `<# end #>` при форматировании - форматтер добавляет визуальное разделение там где оно не нужно, делая код менее компактным. Нужно сделать добавление пустых строк более селективным и идемпотентным. FIXED: Improved blockEnd logic to analyze existing separation in token stream before adding new blank lines, making the formatter truly idempotent. All 75 formatter tests now pass.

@@ -45,7 +45,8 @@
     "onLanguage:template-typescript",
     "onLanguage:template-markdown",
     "onCommand:ftejs.convertToTemplate",
-    "onCommand:ftejs.toggleTrimVisualizer"
+    "onCommand:ftejs.toggleTrimVisualizer",
+    "onCommand:ftejs.preview.dualExtraction"
   ],
   "categories": [
     "Programming Languages"
@@ -85,9 +86,11 @@
       { "command": "ftejs.scaffold.slot", "title": "fte.js: Insert Slot" },
       { "command": "ftejs.scaffold.chunkPair", "title": "fte.js: Insert chunkStart/chunkEnd" },
       { "command": "ftejs.scaffold.partial", "title": "fte.js: Create Partial and Insert Call" },
+      { "command": "ftejs.debug.syntaxScopes", "title": "fte.js: Debug Syntax Scopes (experimental)" },
       { "command": "ftejs.generator.nhtmlPage", "title": "fte.js: Generate .nhtml Page" },
       { "command": "ftejs.generator.ntsClass", "title": "fte.js: Generate .nts Class" },
       { "command": "ftejs.preview.chunks", "title": "fte.js: Preview Chunks (static)" },
+      { "command": "ftejs.preview.dualExtraction", "title": "fte.js: Preview Dual Extraction (Code/Instruction)" },
       { "command": "ftejs.convertToTemplate", "title": "fte.js: Create template from this file" },
       { "command": "ftejs.toggleTrimVisualizer", "title": "fte.js: Toggle Trimmed Whitespace Visualizer" }
     ],
