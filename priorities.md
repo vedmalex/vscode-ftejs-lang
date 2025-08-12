@@ -2,48 +2,53 @@
 
 Ordered list of improvements based on analysis of USAGE.md and agents.md.
 
-## P0 — Must ship next
-- Dynamic docs for hovers/completions from USAGE.md
-  - Parse `USAGE.md` to build a map of functions (`partial`, `content`, `slot`, `chunkStart`, `chunkEnd`) and directives with titles + descriptions + examples
-  - Serve these as hover markdown and completion `detail/documentation`
-  - Auto-refresh on USAGE.md changes (file watcher)
-- Block/slot name IntelliSense
-  - Completion for declared block/slot names inside `content('...')` and `slot('...')`
-  - Diagnostics for unknown `content('name')` (when no such block exists in current/parent template)
-- Partial/alias navigation
-  - Go to definition from `partial(obj, 'aliasOrPath')` to the template (resolve via `requireAs` aliases and local relative paths)
-- Formatter hardening
-  - Respect workspace/user Prettier config when available
-  - Option to disable Prettier formatting of text segments per user setting
-  - Preserve significant blank lines; avoid formatting inside Markdown code fences
+## P0 — Must ship next (partial DONE)
+- Continuous bug fixing (ongoing; never marked complete)
+  - Always keep fixing issues listed in `BUGS.md`
+  - Prioritize regressions affecting block detection, delimiter pairing, and formatting
+- Dynamic docs for hovers/completions from USAGE.md (DONE hovers, DONE completions)
+- Block/slot name IntelliSense (DONE)
+- Diagnostics: unknown content('name'), duplicate blocks/slots (DONE)
+- Partial validation: unresolved alias/path warning (DONE)
+- Formatter hardening (in progress):
+  - Respect Prettier config (DONE)
+  - Option to disable text formatting (DONE)
+  - Preserve blank lines (DONE)
+  - Avoid injecting newlines/spaces into text output (TODO)
 
-## P1 — Important
-- Workspace indexing
-  - Index `.nhtml/.njs/.nts/.nmd` to build a symbol/reference graph: blocks, slots, aliases, `requireAs`
-  - Cross-file references for `content('name')`/`slot('name')` and `partial(..., 'alias')`
-- Code actions
-  - Convert heavy `#{ ... }` expression into: `<# const v = ... #>#{ v }`
-  - Wrap selection with trimmed blocks `<#- ... -#>`
-  - Generate scaffolds: block, slot, chunkStart/chunkEnd pairs with names
-- Rich codelens
-  - Show references count above `block`/`slot` declarations and chunk starts
-- Settings surface
-  - `ftejs.format.textFormatter`: `prettier` | `none`
-  - `ftejs.format.keepBlankLines`: number
-  - `ftejs.features.ejsTags`: boolean
-  - `ftejs.docs.usagePath`: override path to USAGE.md
+## P1 — Important (in progress)
+- Workspace indexing (DONE) and cross-file references:
+  - content('name') and slot('name') refs (DONE)
+  - partial() refs and definition across files (DONE refs, DONE definition)
+- Code actions (in progress):
+  - Close open blocks / remove unmatched end (DONE)
+  - Wrap selection `<#- ... -#>` / `<# ... #>` (DONE)
+  - Extract heavy `#{...}` to const (DONE)
+  - Transform selection → block/slot/partial with prompts (DONE)
+- Settings surface (DONE)
 
-## P2 — Nice to have
-- Multi-language text formatting
-  - Allow language override per region via a directive or fenced marker (e.g., `<!-- lang:go -->`)
-- Live preview for chunks
-  - Command to run current template with sample context and show multi-file chunk result tree
-- Template generators
-  - Commands to scaffold common templates (HTML page, TS class, RA CRUD pieces) using `agents.md` patterns
-- Performance & telemetry
-  - Lazy parsing, debounce formatting/diagnostics, opt-in telemetry for feature usage (no PII)
+- Syntax highlighting stability (TODO)
+  - Give explicit bracket scopes to template delimiters: `<#`, `#>`, `#{`, `!{`, `<*`, `*>`, `<%`, `%>`
+  - Align `beginCaptures`/`endCaptures` to `punctuation.definition.bracket.*` across all grammars
+  - Ensure correct `contentName` for embedded languages (JS/TS/HTML/Markdown)
+  - Add basic highlight/bracket-matching snapshots
 
-## P3 — Maintenance
-- Unit tests for LSP features (completions, hovers, formatting)
-- E2E smoke tests using `vscode-test`
-- CI: add actions for lint/build/test and package on tags
+- Trimmed whitespace visualizer (TODO)
+  - Decorations for whitespace removed by `<#-` and `-#>`
+  - Toggle command `ftejs.toggleTrimVisualizer`
+  - Debounced updates on editor and document changes
+  - Subtle, theme-friendly appearance
+
+## P2 — Nice to have (in progress)
+- Live preview for chunks (static + live) (DONE)
+- Multi-language text formatting (override per region via directive or marker) (TODO)
+- Template generators based on agents.md (HTML/TS) (DONE)
+
+## P3 — Maintenance (in progress)
+- Unit tests for LSP basics (TODO)
+- E2E smoke tests using vscode-test (TODO)
+- CI: build/test/package on tags (CI build/package DONE; tests to extend)
+
+## New MUST-HAVE items from review
+- Formatter: strictly separate formatting of template code vs template text; never introduce extra output characters; follow agents.md rules (TODO)
+- Syntax highlighting: stabilize bracket matching and delimiter scopes; reduce conflicts in TextMate patterns; add highlight tests (TODO)

@@ -4,6 +4,13 @@
   "scopeName": "fte.template.inject.html",
   "injectionSelector": "L:text.html.basic, L:text.html.markdown",
   "patterns": [
-    { "include": "text.html.template#template-expressions" }
+    { "include": "text.html.template#template-expressions" },
+    {
+      "name": "meta.inline.template.brackets",
+      "match": "(<#|#>|#\\{|!\\{|<\\*|\\*>)",
+      "captures": {
+        "1": { "name": "punctuation.definition.bracket.template" }
+      }
+    }
   ]
 }

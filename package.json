@@ -44,7 +44,8 @@
     "onLanguage:template-html",
     "onLanguage:template-typescript",
     "onLanguage:template-markdown",
-    "onCommand:ftejs.convertToTemplate"
+    "onCommand:ftejs.convertToTemplate",
+    "onCommand:ftejs.toggleTrimVisualizer"
   ],
   "categories": [
     "Programming Languages"
@@ -56,11 +57,7 @@
     "configuration": {
       "title": "fte.js",
       "properties": {
-        "ftejs.parserPath": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Optional. Absolute path to local fte.js-parser. If empty, server tries to resolve npm package `fte.js-parser`."
-        },
+
         "ftejs.format.textFormatter": {
           "type": "boolean",
           "default": true,
@@ -91,7 +88,8 @@
       { "command": "ftejs.generator.nhtmlPage", "title": "fte.js: Generate .nhtml Page" },
       { "command": "ftejs.generator.ntsClass", "title": "fte.js: Generate .nts Class" },
       { "command": "ftejs.preview.chunks", "title": "fte.js: Preview Chunks (static)" },
-      { "command": "ftejs.convertToTemplate", "title": "fte.js: Create template from this file" }
+      { "command": "ftejs.convertToTemplate", "title": "fte.js: Create template from this file" },
+      { "command": "ftejs.toggleTrimVisualizer", "title": "fte.js: Toggle Trimmed Whitespace Visualizer" }
     ],
     "menus": {
       "editor/context": [
@@ -223,8 +221,6 @@
   "dependencies": {
     "vscode-languageclient": "^9.0.1",
     "vscode-languageserver": "^9.0.1",
-    "vscode-languageserver-textdocument": "^1.0.11",
-    "fte.js-parser": "^3.0.0-rc.12",
-    "fte.js-standalone": "^3.0.0-rc.12"
+    "vscode-languageserver-textdocument": "^1.0.11"
   }
 }

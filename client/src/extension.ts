@@ -3,6 +3,91 @@ import * as vscode from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
 
 let client: LanguageClient | undefined;
+let trimDecorationType: vscode.TextEditorDecorationType | undefined;
+let trimVisualizerEnabled = false;
+let trimDebounceTimer: NodeJS.Timeout | undefined;
+
+function scheduleUpdateTrimDecorations(editor: vscode.TextEditor | undefined) {
+  if (!trimVisualizerEnabled) { return; }
+  if (trimDebounceTimer) { clearTimeout(trimDebounceTimer); }
+  trimDebounceTimer = setTimeout(() => updateTrimDecorations(editor), 150);
+}
+
+function updateTrimDecorations(editor: vscode.TextEditor | undefined) {
+  if (!trimDecorationType) { return; }
+  if (!editor || !trimVisualizerEnabled) {
+    try { editor?.setDecorations(trimDecorationType, []); } catch {}
+    return;
+  }
+
+  const doc = editor.document;
+  const text = doc.getText();
+  const decos: vscode.DecorationOptions[] = [];
+
+  const pushRange = (start: number, end: number, hover: string) => {
+    if (end <= start) { return; }
+    const range = new vscode.Range(doc.positionAt(start), doc.positionAt(end));
+    decos.push({ range, hoverMessage: hover });
+  };
+
+  // Left-trim: <#- and EJS variants
+  for (const m of text.matchAll(/<#-/g)) {
+    const idx = m.index ?? -1; if (idx < 0) continue;
+    // Walk backwards over whitespace
+    let s = idx - 1;
+    while (s >= 0) {
+      const ch = text.charAt(s);
+      if (ch !== ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r') break;
+      s--;
+    }
+    const start = s + 1;
+    pushRange(start, idx, 'Whitespace trimmed by <#-');
+  }
+
+  // EJS left-trim: <%_ and <%-
+  for (const m of text.matchAll(/<%[-_]/g)) {
+    const idx = m.index ?? -1; if (idx < 0) continue;
+    // Walk backwards over whitespace
+    let s = idx - 1;
+    while (s >= 0) {
+      const ch = text.charAt(s);
+      if (ch !== ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r') break;
+      s--;
+    }
+    const start = s + 1;
+    pushRange(start, idx, `Whitespace trimmed by ${m[0]}`);
+  }
+
+  // Right-trim: -#> and EJS variants
+  for (const m of text.matchAll(/-#>/g)) {
+    const idx = m.index ?? -1; if (idx < 0) continue;
+    const from = idx + m[0].length;
+    // Walk forwards over whitespace
+    let e = from;
+    while (e < text.length) {
+      const ch = text.charAt(e);
+      if (ch !== ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r') break;
+      e++;
+    }
+    pushRange(from, e, 'Whitespace trimmed by -#>');
+  }
+
+  // EJS right-trim: -%> and _%>
+  for (const m of text.matchAll(/[-_]%>/g)) {
+    const idx = m.index ?? -1; if (idx < 0) continue;
+    const from = idx + m[0].length;
+    // Walk forwards over whitespace
+    let e = from;
+    while (e < text.length) {
+      const ch = text.charAt(e);
+      if (ch !== ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r') break;
+      e++;
+    }
+    pushRange(from, e, `Whitespace trimmed by ${m[0]}`);
+  }
+
+  editor.setDecorations(trimDecorationType, decos);
+}
 
 export async function activate(context: vscode.ExtensionContext) {
   const serverModule = context.asAbsolutePath(path.join('server', 'out', 'server.js'));
@@ -24,15 +109,21 @@ export async function activate(context: vscode.ExtensionContext) {
     synchronize: {
       configurationSection: 'ftejs',
       fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{njs,nhtml,nts,nmd}')
-    },
-    initializationOptions: {
-      parserPath: vscode.workspace.getConfiguration('ftejs').get('parserPath')
     }
   };
 
   client = new LanguageClient('ftejsLanguageServer', 'fte.js Language Server', serverOptions, clientOptions);
   await client.start();
   context.subscriptions.push({ dispose: () => client?.stop() });
+
+  // Decoration type for trimmed whitespace visualization
+  trimDecorationType = vscode.window.createTextEditorDecorationType({
+    backgroundColor: new vscode.ThemeColor('editor.wordHighlightBackground'),
+    overviewRulerColor: new vscode.ThemeColor('editor.wordHighlightBackground'),
+    overviewRulerLane: vscode.OverviewRulerLane.Right,
+    isWholeLine: false,
+    border: '1px dashed rgba(200,160,0,0.50)'
+  });
 
   // Commands to scaffold common constructs
   const insert = (snippet: string) => {
@@ -70,6 +161,18 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       } catch (e) {
         vscode.window.showErrorMessage(`Failed to create partial: ${e}`);
+      }
+    }),
+    // Toggle trimmed-whitespace visualizer
+    vscode.commands.registerCommand('ftejs.toggleTrimVisualizer', async () => {
+      trimVisualizerEnabled = !trimVisualizerEnabled;
+      if (!trimVisualizerEnabled) {
+        const ed = vscode.window.activeTextEditor;
+        if (ed && trimDecorationType) ed.setDecorations(trimDecorationType, []);
+        vscode.window.showInformationMessage('fte.js Trim Visualizer: Disabled');
+      } else {
+        vscode.window.showInformationMessage('fte.js Trim Visualizer: Enabled');
+        scheduleUpdateTrimDecorations(vscode.window.activeTextEditor);
       }
     }),
     // Prompted refactors from server-provided actions
@@ -157,32 +260,113 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage(`Live preview failed: ${e}`);
       }
     }),
-    // Convert file to template
+    // Convert file to template (MUST_HAVE.md point 8)
     vscode.commands.registerCommand('ftejs.convertToTemplate', async () => {
-      const editor = vscode.window.activeTextEditor; if (!editor) return;
+      const editor = vscode.window.activeTextEditor; 
+      if (!editor) {
+        vscode.window.showWarningMessage('No active editor found');
+        return;
+      }
+      
       const src = editor.document.uri.fsPath;
       const ext = path.extname(src).toLowerCase();
-      const map: Record<string,string> = { '.ts':'.nts', '.tsx':'.nts', '.js':'.njs', '.jsx':'.njs', '.md':'.nmd', '.html':'.nhtml', '.htm':'.nhtml' };
+      const baseName = path.basename(src, ext);
+      const dirName = path.dirname(src);
+      
+      // Template extension mapping
+      const map: Record<string,string> = { 
+        '.ts': '.nts', 
+        '.tsx': '.nts', 
+        '.js': '.njs', 
+        '.jsx': '.njs', 
+        '.md': '.nmd', 
+        '.html': '.nhtml', 
+        '.htm': '.nhtml' 
+      };
+      
       const dstExt = map[ext];
-      if (!dstExt) { vscode.window.showWarningMessage('Unsupported source type for conversion'); return; }
-      const dst = src.slice(0, -ext.length) + dstExt;
+      if (!dstExt) { 
+        vscode.window.showWarningMessage(`Unsupported source type '${ext}' for template conversion. Supported: ${Object.keys(map).join(', ')}`); 
+        return; 
+      }
+      
+      // Ask user for confirmation and optional name customization
+      const suggested = baseName + dstExt;
+      const customName = await vscode.window.showInputBox({
+        prompt: `Convert ${path.basename(src)} to fte.js template`,
+        value: suggested,
+        placeHolder: 'Template file name (with extension)',
+        validateInput: (value) => {
+          if (!value.trim()) return 'File name cannot be empty';
+          if (!value.endsWith(dstExt)) return `Template file must have ${dstExt} extension`;
+          return undefined;
+        }
+      });
+      
+      if (!customName) return; // User cancelled
+      
+      const dst = path.join(dirName, customName);
       const dstUri = vscode.Uri.file(dst);
+      
       try {
-        const buf = new TextEncoder().encode(editor.document.getText());
+        // Check if target file already exists
+        const exists = await vscode.workspace.fs.stat(dstUri).then(() => true, () => false);
+        if (exists) {
+          const overwrite = await vscode.window.showWarningMessage(
+            `File '${customName}' already exists. Overwrite?`,
+            { modal: true },
+            'Overwrite',
+            'Cancel'
+          );
+          if (overwrite !== 'Overwrite') return;
+        }
+        
+        // Copy file content
+        const content = editor.document.getText();
+        const buf = new TextEncoder().encode(content);
         await vscode.workspace.fs.writeFile(dstUri, buf);
+        
+        // Open the new template file
         const doc = await vscode.workspace.openTextDocument(dstUri);
         await vscode.window.showTextDocument(doc, { preview: false });
-        if (doc.getText().trim().length === 0) {
-          const scaffold = dstExt === '.nhtml' ? `<#@ context 'data' #>\n` : `<#@ context 'context' #>\n`;
-          const e2 = new vscode.WorkspaceEdit();
-          e2.insert(dstUri, new vscode.Position(0,0), scaffold);
-          await vscode.workspace.applyEdit(e2);
+        
+        // Add template scaffold if file is empty or just has basic content
+        const needsScaffold = content.trim().length === 0 || !content.includes('<#@');
+        if (needsScaffold) {
+          const contextVar = dstExt === '.nhtml' ? 'data' : 'context';
+          const scaffold = `<#@ context '${contextVar}' #>\n`;
+          const edit = new vscode.WorkspaceEdit();
+          edit.insert(dstUri, new vscode.Position(0, 0), scaffold);
+          await vscode.workspace.applyEdit(edit);
         }
+        
+        vscode.window.showInformationMessage(
+          `Template created: ${customName}`,
+          'Show in Explorer'
+        ).then(action => {
+          if (action === 'Show in Explorer') {
+            vscode.commands.executeCommand('revealFileInOS', dstUri);
+          }
+        });
+        
       } catch (e) {
         vscode.window.showErrorMessage(`Failed to convert file: ${e}`);
       }
     })
   );
+
+  // Update decorations on editor changes
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(ed => scheduleUpdateTrimDecorations(ed)),
+    vscode.workspace.onDidChangeTextDocument(ev => {
+      if (vscode.window.activeTextEditor && ev.document === vscode.window.activeTextEditor.document) {
+        scheduleUpdateTrimDecorations(vscode.window.activeTextEditor);
+      }
+    })
+  );
+
+  // Initial update
+  scheduleUpdateTrimDecorations(vscode.window.activeTextEditor);
 }
 
 export function deactivate(): Thenable<void> | undefined {

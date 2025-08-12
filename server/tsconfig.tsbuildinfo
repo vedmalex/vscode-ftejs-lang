@@ -1,1 +1,1 @@
-{"root":["./src/server.ts"],"version":"5.9.2"}
+{"root":["./src/astutils.ts","./src/diagnosticscore.ts","./src/formattercore.ts","./src/parser.ts","./src/server.ts"],"version":"5.9.2"}

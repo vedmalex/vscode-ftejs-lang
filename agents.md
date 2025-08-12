@@ -122,3 +122,149 @@ export default function handler(req, res) {
 - Do not embed heavy expressions inside `#{}`; move logic to `<# ... #>`.
 - Ensure each `<# block 'name' : #>` has a matching `<# end #>`.
 - Use `!{}` only for HTML contexts; in code generation prefer `#{}`.
+
+## Runtime helpers: quick reference (synced from USAGE.md)
+
+- `partial(obj, name)`
+  - Resolves aliases defined via `requireAs` automatically.
+  - Returns a string in normal mode; in chunks mode it may merge child chunks and return an empty string.
+  - Example:
+  
+  ```njs
+  <#@ requireAs ('codeblock.njs','codeblock') #>
+  #{partial(context.main, 'codeblock')}
+  #{partial({ title: 'Hello' }, 'header.njs')}
+  ```
+
+- `content(blockName, ctx?)`
+  - Renders a named block of the current (or parent when using `extend`) template.
+  - If `ctx` is omitted, some templates default to the local context.
+  - Missing blocks render as empty string.
+  - Example:
+  
+  ```njs
+  <# block 'view' : #>
+  <div>View block content</div>
+  <# end #>
+  #{content('view', context)}
+  ```
+
+- `slot(name, content?)`
+  - Collects values (deduplicated) when called as `slot(name, value)`.
+  - Renders a slot when called as `#{slot(name)}`; expands to `#{partial(context[name] || [], name)}` at runtime.
+  - Example:
+  
+  ```njs
+  <#- if (f.type === 'JSON') { -#>
+    <#- slot('additional-imports', 'JSONField') #>
+  <#- } else { -#>
+    <#- slot('additional-imports', 'TextField') #>
+  <#- } -#>
+  import {
+    #{content('base-imports')}
+    #{slot('additional-imports')}
+  } from 'react-admin'
+  ```
+
+## Chunks model
+
+- Activate with `<#@ chunks '$$$main$$$' #>` in the root template.
+- Behavior (from `MainTemplate.njs`):
+  - In chunks mode, wrapper overrides `partial` to merge child chunk arrays into the result.
+  - `chunkStart(name)` switches output to the named chunk; `chunkEnd()` returns to the main buffer.
+  - Result shape by default: `{ name: string, content: string | string[] }[]`; with `useHash`: `{ [name]: string | string[] }`.
+  - `includeMainChunk` controls inclusion of the main chunk; `deindent` applies `options.applyDeindent` to chunk contents.
+
+Example:
+
+```njs
+<#@ chunks "$$$main$$$" #>
+
+<#- chunkStart('src/index.js'); -#>
+// entry
+console.log('Hello');
+<# chunkEnd(); -#>
+
+<#- chunkStart('src/util.js'); -#>
+export const sum = (a, b) => a + b
+<# chunkEnd(); -#>
+```
+
+Interaction of `partial` and chunks:
+
+- If a partial returns a chunk array, it gets merged into the current result and returns an empty string.
+- If a partial returns a string, it is inserted into the current chunk as usual.
+
+```njs
+// Will merge chunks if child returns chunk array; otherwise inserts string
+#{partial(context.child, 'child-template')}
+```
+
+## `options` object in templates
+
+Available in `script(context, _content, partial, slot, options)`:
+
+- `escapeIt(text: string): string` — HTML-escape helper.
+- `applyIndent(str: string | string[], indent: number | string): string | string[]` — indent each line.
+- `applyDeindent(str: string | string[], numChars: number | string): string | string[]` — remove leading indentation.
+- Optional sourcemap fields: `sourceMap`, `inline`, `sourceRoot`, `sourceFile`.
+
+Examples:
+
+```njs
+// Escaped vs raw output
+#{options.escapeIt(context.title)}
+!{context.rawHtml}
+
+// Indent a multi-line block by 2 spaces
+#{options.applyIndent(content('view', context), '  ')}
+
+// Deindent chunk content when returning
+<#@ deindent #>
+<#- chunkStart('file.txt'); -#>
+Line 1
+  Line 2
+<# chunkEnd(); -#>
+```
+
+## Directives (parser-recognized)
+
+- `extend 'parent.njs'` — set parent template for block inheritance.
+- `context 'ctx'` — rename the `context` parameter for `script`/blocks.
+- `alias 'name1' 'name2'` — register alternative template names.
+- `requireAs ('path/to.tpl','localAlias')` — ensure dependency and bind alias for `partial`.
+- `deindent(2?)` — apply `options.applyDeindent` on return (number optional).
+- `chunks 'main'` — enable chunked generation; related flags: `includeMainChunk`, `useHash`.
+- Disable flags: `noContent`, `noSlots`, `noBlocks`, `noPartial`, `noOptions` (only `noContent` impacts current generation).
+- Return mode markers: `promise`, `callback` (recognized by parser; not used by current `MainTemplate.*`).
+
+## Structural tags (non-directives)
+
+- `block`: `<# block 'name' : #> ... <# end #>`
+- `slot` (block form): `<# slot 'name' : #> ... <# end #>`
+- `end`: closes block/slot sections
+
+## Common patterns
+
+- Collecting imports via slots:
+
+```njs
+<#- slot('import-from-react-admin-show','Show') #>
+<#- slot('import-from-react-admin-show','EditButton') #>
+import {
+  #{slot('import-from-react-admin-show')}
+} from 'react-admin'
+```
+
+- Conditional slot selection:
+
+```njs
+<#-
+const type = (f.type == 'Number' ? 'Text' : f.type) + 'Field'
+if (f.type === 'JSON') {
+  slot('import-from-ra-ui-components-show', `${type}`)
+} else {
+  slot('import-from-react-admin-show', `${type}`)
+}
+-#>
+```

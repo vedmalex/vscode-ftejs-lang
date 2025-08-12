@@ -1,0 +1,4 @@
+{
+  "project": "fte-js-lang",
+  "tech": { "server": "ts-jest", "lsp": true }
+}
